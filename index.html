@@ -1,0 +1,3615 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Simulator — Путь одного запроса</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0f;--bg2:#111118;--bg3:#1a1a25;--bg4:#222233;
+  --text:#e8e8f0;--dim:#9090a8;--muted:#5a5a72;
+  --accent:#6366f1;--glow:rgba(99,102,241,.25);
+  --cyan:#22d3ee;--green:#34d399;--orange:#fb923c;
+  --red:#f87171;--yellow:#fbbf24;--pink:#f472b6;--blue:#60a5fa;
+  --mono:'JetBrains Mono',monospace;--sans:'Inter',system-ui,sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--sans)}
+
+/* ── Top bar ── */
+.top-bar{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  background:rgba(10,10,15,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid rgba(255,255,255,.06);
+  padding:0 24px;height:52px;
+  display:flex;align-items:center;gap:16px;
+}
+.top-bar .title{font-weight:700;font-size:.82em;color:var(--dim);white-space:nowrap;margin-right:8px}
+.steps-track{flex:1;display:flex;align-items:center;gap:0;overflow:hidden}
+.step-dot{display:flex;align-items:center;cursor:pointer;flex-shrink:0}
+.step-dot .dot{
+  width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:.65em;font-weight:700;
+  border:2px solid var(--muted);color:var(--muted);transition:all .3s;position:relative;background:var(--bg);
+}
+.step-dot.done .dot{border-color:var(--green);color:var(--green);background:rgba(52,211,153,.08)}
+.step-dot.active .dot{border-color:var(--accent);color:var(--text);background:rgba(99,102,241,.15);box-shadow:0 0 12px var(--glow);transform:scale(1.12)}
+.step-dot .line{width:20px;height:2px;background:var(--muted);transition:background .3s;flex-shrink:0}
+.step-dot.done .line{background:var(--green)}
+.step-dot .dot-label{
+  display:none;position:absolute;top:36px;left:50%;transform:translateX(-50%);
+  background:var(--bg3);border:1px solid rgba(255,255,255,.1);padding:3px 8px;border-radius:5px;
+  font-size:10px;color:var(--dim);white-space:nowrap;font-family:var(--sans);font-weight:400;pointer-events:none;z-index:10;
+}
+.step-dot:hover .dot-label{display:block}
+.top-bar .counter{font-family:var(--mono);font-size:.75em;color:var(--muted);white-space:nowrap;margin-left:auto}
+.top-bar .counter span{color:var(--accent);font-weight:700}
+.progress-line{position:fixed;top:51px;left:0;right:0;height:2px;z-index:99;background:rgba(255,255,255,.03)}
+.progress-line .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width .4s ease}
+
+/* ── Nav ── */
+.nav-buttons{position:fixed;bottom:0;left:0;right:0;display:flex;gap:12px;z-index:100;justify-content:center;padding:16px 0 20px;background:linear-gradient(to top,var(--bg) 60%,transparent)}
+.nav-btn{
+  padding:12px 28px;border-radius:12px;border:none;font-family:var(--sans);font-size:.92em;font-weight:600;
+  cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;
+}
+.nav-btn.secondary{background:var(--bg3);color:var(--dim);border:1px solid rgba(255,255,255,.08)}
+.nav-btn.secondary:hover{background:var(--bg4);color:var(--text)}
+.nav-btn.primary{background:var(--accent);color:#fff;box-shadow:0 4px 20px var(--glow)}
+.nav-btn.primary:hover{filter:brightness(1.15);transform:translateY(-1px)}
+.nav-btn:disabled{opacity:.3;cursor:not-allowed;transform:none!important;filter:none!important}
+.key-hint{position:fixed;bottom:28px;right:28px;z-index:100;font-size:.7em;color:var(--muted);font-family:var(--mono)}
+.key-hint kbd{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:3px;padding:1px 5px}
+
+/* ── Slides ── */
+.slides{position:fixed;top:52px;left:0;right:0;bottom:0;overflow:hidden}
+.slide{
+  position:absolute;top:0;left:0;right:0;bottom:0;
+  display:flex;align-items:center;justify-content:center;
+  padding:20px 40px 90px;opacity:0;transform:translateX(60px);
+  transition:opacity .45s ease,transform .45s ease;pointer-events:none;overflow-y:auto;
+}
+.slide.active{opacity:1;transform:translateX(0);pointer-events:all}
+.slide.exit-left{opacity:0;transform:translateX(-60px)}
+.slide.exit-right{opacity:0;transform:translateX(60px)}
+.slide-content{max-width:1100px;width:100%}
+
+/* ── Common ── */
+h1{font-size:3em;font-weight:800;line-height:1.1;letter-spacing:-.03em;margin-bottom:16px}
+h2{font-size:2em;font-weight:700;line-height:1.2;letter-spacing:-.02em;margin-bottom:12px}
+h3{font-size:1.15em;font-weight:600;margin-bottom:8px}
+p{color:var(--dim);margin-bottom:10px;line-height:1.6}
+.card{background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:24px;transition:all .3s}
+.card:hover{border-color:rgba(255,255,255,.1)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:start}
+.tag{display:inline-block;padding:4px 12px;border-radius:20px;font-size:.7em;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.t-accent{background:rgba(99,102,241,.15);color:var(--accent)}
+.t-pink{background:rgba(244,114,182,.12);color:var(--pink)}
+
+/* ── Matrix rain ── */
+.matrix-overlay{
+  position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;
+  pointer-events:none;opacity:0;transition:opacity .4s;
+}
+.matrix-overlay.active{opacity:1}
+
+/* ── Placeholder ── */
+.placeholder{border:2px dashed rgba(255,255,255,.08);border-radius:16px;padding:80px 40px;text-align:center}
+.placeholder h2{color:var(--muted);font-size:1.3em;margin-bottom:6px}
+.placeholder p{color:rgba(255,255,255,.2);font-size:.85em}
+
+/* ── Chat window ── */
+.chat-window{
+  background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:16px;
+  overflow:hidden;max-width:520px;margin:0 auto;box-shadow:0 8px 40px rgba(0,0,0,.4);
+}
+.chat-header{
+  padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.06);
+  display:flex;align-items:center;gap:10px;
+}
+.chat-header .avatar{
+  width:32px;height:32px;border-radius:8px;
+  background:linear-gradient(135deg,var(--accent),var(--cyan));
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+}
+.chat-body{padding:16px;min-height:200px}
+.chat-msg{margin-bottom:12px;display:flex}
+.chat-msg.bot{justify-content:flex-start}
+.chat-msg.user{justify-content:flex-end}
+.chat-bubble{
+  max-width:80%;padding:10px 14px;border-radius:12px;font-size:.88em;line-height:1.5;
+}
+.chat-msg.bot .chat-bubble{background:rgba(99,102,241,.08);border-radius:12px 12px 12px 4px;color:var(--dim)}
+.chat-msg.user .chat-bubble{background:var(--bg3);border-radius:12px 12px 4px 12px;color:var(--text)}
+.chat-input{
+  border-top:1px solid rgba(255,255,255,.06);padding:10px 16px;display:flex;gap:8px;align-items:center;
+}
+.chat-input-field{
+  flex:1;background:var(--bg);border:1px solid rgba(255,255,255,.08);border-radius:8px;
+  padding:8px 12px;font-size:.8em;color:var(--muted);font-family:var(--sans);
+}
+.chat-send{
+  width:30px;height:30px;border-radius:8px;background:var(--accent);border:none;
+  color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;
+}
+
+/* (old sp-line styles removed) */
+
+/* ── Typing cursor ── */
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.cursor{border-right:2px solid var(--accent);animation:blink 1s step-end infinite;padding-right:2px}
+
+/* ── Token units ── */
+.tok-unit{
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  cursor:pointer;transition:transform .15s;
+}
+.tok-unit:hover{transform:translateY(-2px)}
+.tok-unit.active .token-chip{
+  box-shadow:0 0 12px color-mix(in srgb, var(--tc) 35%, transparent);
+  border-color:var(--tc);
+}
+.token-chip{
+  background:color-mix(in srgb, var(--tc) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--tc) 25%, transparent);
+  color:var(--tc);padding:6px 12px;border-radius:8px;
+  font-family:var(--mono);font-size:.95em;cursor:pointer;
+  transition:all .15s;white-space:nowrap;
+}
+.token-chip:hover{
+  background:color-mix(in srgb, var(--tc) 20%, transparent);
+}
+.tok-id-label{
+  font-family:var(--mono);font-size:.65em;opacity:.5;
+  transition:opacity .15s;
+}
+.tok-unit:hover .tok-id-label,.tok-unit.active .tok-id-label{opacity:1}
+
+/* ── Embedding tokens ── */
+.emb-token{text-align:center}
+.emb-id{font-family:var(--mono);font-size:.75em;color:var(--muted);margin-bottom:2px}
+.emb-label{font-size:.7em;color:var(--dim)}
+
+/* ── Vector number columns ── */
+.vec-col{
+  display:flex;flex-direction:column;align-items:center;gap:0;
+  background:var(--bg2);border:1px solid rgba(255,255,255,.06);
+  border-radius:8px;padding:6px 4px;min-width:52px;
+}
+.vec-col .vec-name{
+  font-size:.7em;font-weight:600;margin-bottom:4px;font-family:var(--mono);
+}
+.vec-col .vec-num{
+  font-family:var(--mono);font-size:.6em;color:var(--dim);
+  line-height:1.5;opacity:.7;
+}
+.vec-col .vec-dots{
+  font-size:.55em;color:var(--muted);letter-spacing:1px;
+}
+.vec-col:hover{border-color:rgba(255,255,255,.15);background:var(--bg3)}
+
+/* ── Pill questions ── */
+.pill-q{
+  padding:6px 14px;border-radius:20px;font-size:.78em;
+  border:1px dashed rgba(255,255,255,.12);color:var(--muted);
+  cursor:pointer;transition:all .2s;
+}
+.pill-q:hover{border-color:var(--accent);color:var(--accent);background:rgba(99,102,241,.05)}
+
+/* ── Model buttons ── */
+.model-size-btn{
+  padding:10px 16px;border-radius:10px;border:1px solid rgba(255,255,255,.1);
+  background:var(--bg2);color:var(--dim);cursor:pointer;
+  font-family:var(--mono);font-size:.72em;transition:all .2s;
+  text-align:center;line-height:1.4;min-width:90px;
+}
+.model-size-btn:hover{border-color:rgba(255,255,255,.2);color:var(--text)}
+.model-size-btn.active{
+  border-color:var(--accent)!important;color:var(--accent)!important;
+  background:rgba(99,102,241,.1)!important;
+}
+
+/* ── Expand chevron (unified style) ── */
+.expand-chevron{
+  font-size:1.4em;line-height:1;transition:transform .3s;flex-shrink:0;
+  display:inline-block;width:16px;text-align:center;
+}
+.expand-chevron.open{transform:rotate(90deg)}
+
+/* ── API header clickable ── */
+.api-header-clickable{
+  padding:16px 24px;cursor:pointer;transition:all .2s;
+}
+.api-header-clickable:hover{background:rgba(255,255,255,.02)}
+.api-header-clickable:hover #apiChevron{color:var(--accent)}
+.api-header-clickable.open #apiChevron{transform:rotate(90deg);color:var(--accent)}
+
+/* ── Bounce down arrow ── */
+@keyframes bounce-down{
+  0%,100%{transform:translateY(0);opacity:.5}
+  50%{transform:translateY(4px);opacity:1}
+}
+
+/* ── Fly animation ── */
+@keyframes flyRight{
+  0%{left:0;opacity:0}20%{opacity:1}80%{opacity:1}100%{left:calc(100% - 12px);opacity:0}
+}
+
+/* ── System prompt blocks ── */
+.sp-block{
+  background:var(--bg2);border:1px solid rgba(255,255,255,.06);
+  border-radius:10px;overflow:hidden;cursor:pointer;transition:all .2s;
+}
+.sp-block:hover{border-color:rgba(255,255,255,.14);background:var(--bg3)}
+.sp-block.open{border-color:rgba(255,255,255,.12)}
+.sp-block-header{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;
+}
+.sp-block-icon{
+  width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  font-size:.7em;font-weight:700;font-family:var(--mono);flex-shrink:0;
+}
+.sp-block-title{font-size:.85em;font-weight:600;color:var(--text);white-space:nowrap}
+.sp-block-preview{font-size:.72em;color:var(--muted);font-family:var(--mono);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:4px}
+.sp-block-arrow{font-size:1.1em;color:var(--muted);transition:transform .3s;flex-shrink:0}
+.sp-block-arrow.open{transform:rotate(90deg)}
+.sp-block.open .sp-block-preview{display:none}
+.sp-block-detail{padding:0 14px 14px;border-top:1px solid rgba(255,255,255,.04)}
+.sp-block-code{
+  font-family:var(--mono);font-size:.7em;line-height:1.6;color:var(--dim);
+  background:var(--bg);border-radius:6px;padding:10px 12px;margin:10px 0 8px;
+  white-space:pre-wrap;word-break:break-word;max-height:120px;overflow-y:auto;
+}
+.sp-block-note{
+  font-size:.8em;color:var(--dim);line-height:1.5;
+  padding:8px 10px;background:rgba(99,102,241,.04);border-radius:6px;
+  border-left:2px solid var(--accent);
+}
+
+/* ── Data state strip ── */
+.data-state{
+  background:var(--bg2);border:1px solid rgba(255,255,255,.06);
+  border-radius:10px;padding:8px 16px;margin-bottom:20px;
+  display:flex;align-items:center;gap:10px;
+  font-family:var(--mono);font-size:.72em;
+  overflow-x:auto;white-space:nowrap;
+}
+.data-state .ds-label{
+  color:var(--muted);font-size:.85em;flex-shrink:0;
+}
+.data-state .ds-content{
+  color:var(--text);flex:1;
+}
+.ds-chip{
+  display:inline-block;padding:2px 6px;border-radius:4px;
+  font-size:.9em;margin:0 1px;
+}
+.ds-vec{
+  display:inline-flex;flex-direction:column;gap:1px;
+  vertical-align:middle;margin:0 2px;
+}
+.ds-vec-bar{height:2px;border-radius:1px;width:16px}
+.data-state .ds-fade{color:var(--muted);opacity:.4}
+
+/* ── Breadcrumbs ── */
+.breadcrumbs{
+  display:flex;align-items:center;gap:0;margin-bottom:20px;
+  flex-wrap:wrap;
+}
+.bc-item{
+  display:flex;align-items:center;gap:6px;
+  font-size:.72em;color:var(--muted);padding:4px 0;
+  cursor:default;position:relative;
+}
+.bc-item .bc-icon{font-size:1.1em}
+.bc-item .bc-label{white-space:nowrap}
+.bc-item .bc-sep{margin:0 6px;color:rgba(255,255,255,.15);font-size:.8em}
+.bc-item.active{color:var(--accent);font-weight:600}
+.bc-item.active .bc-label{
+  background:rgba(99,102,241,.1);padding:2px 8px;border-radius:4px;
+}
+.bc-item.past{color:var(--muted);opacity:.6}
+.bc-item.future{color:var(--muted);opacity:.3}
+.bc-item.clickable{cursor:pointer}
+.bc-item.clickable:hover .bc-label{color:var(--text)}
+
+/* ── Info tooltips ── */
+.info-click{position:relative}
+.info-click:hover{color:var(--text)!important}
+
+/* ── Attention tokens ── */
+.att-token{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:8px 12px;border-radius:8px;cursor:pointer;transition:all .2s;
+  border:2px solid transparent;background:var(--bg2);
+}
+.att-token:hover{border-color:color-mix(in srgb, var(--tc) 30%, transparent)}
+.att-token.active{border-color:var(--tc);background:color-mix(in srgb, var(--tc) 8%, transparent)}
+.att-token .att-label{font-family:var(--mono);font-size:.85em;font-weight:600;color:var(--tc)}
+.att-token .att-sub{font-size:.6em;color:var(--muted)}
+.att-token-after{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:6px 10px;border-radius:8px;background:color-mix(in srgb, var(--tc) 6%, transparent);
+  border:1px solid color-mix(in srgb, var(--tc) 15%, transparent);
+}
+.att-token-after .att-label{font-family:var(--mono);font-size:.8em;font-weight:600;color:var(--tc)}
+.att-sub-after{font-size:.58em;color:var(--dim);font-style:italic}
+
+/* ── Attention bars ── */
+.att-bar-row{display:flex;align-items:center;gap:8px}
+.att-bar-name{font-family:var(--mono);font-size:.75em;width:50px;text-align:right;flex-shrink:0}
+.att-bar-track{flex:1;height:20px;background:var(--bg2);border-radius:4px;overflow:hidden;position:relative}
+.att-bar-fill{height:100%;border-radius:4px;transition:width 1s ease-out}
+.att-bar-pct{font-family:var(--mono);font-size:.7em;width:36px;text-align:left;flex-shrink:0}
+
+/* ── Annotation arrow ── */
+@media(max-width:1300px){.annotation-arrow{display:none!important}}
+
+/* ── Layer rows (×60 screen) ── */
+.layer-row{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 12px;margin:4px 0;
+  background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:10px;
+  overflow-x:auto;
+}
+.layer-label{
+  font-family:var(--mono);font-size:.7em;font-weight:700;color:var(--accent);
+  min-width:50px;text-align:center;flex-shrink:0;
+}
+.layer-vec{
+  background:var(--bg);border:1px solid rgba(255,255,255,.08);border-radius:6px;
+  padding:4px 8px;min-width:100px;flex-shrink:0;
+}
+.layer-vec-title{font-size:.6em;font-weight:700;font-family:var(--mono);text-align:center;margin-bottom:2px}
+.layer-vec-row{
+  display:flex;justify-content:space-between;gap:6px;
+  font-family:var(--mono);font-size:.58em;line-height:1.6;
+}
+.layer-dim{color:var(--muted);font-size:.9em}
+.layer-diff{font-size:.75em;width:12px;text-align:center}
+.layer-diff.green{color:var(--green)}
+.layer-diff.red{color:var(--red);opacity:.5}
+.layer-gate{
+  background:var(--bg);border:1px solid rgba(255,255,255,.1);
+  border-radius:6px;padding:6px 8px;min-width:64px;text-align:center;flex-shrink:0;
+}
+.layer-gate-label{font-size:.62em;font-weight:700;margin-bottom:4px}
+.layer-gate-mini{
+  width:48px;height:32px;margin:0 auto;border-radius:4px;overflow:hidden;
+  background:var(--bg2);position:relative;
+}
+.layer-arrow{color:var(--muted);font-size:.8em;flex-shrink:0}
+/* gate glow done via JS style.boxShadow */
+
+/* (pipe styles removed — replay uses inline) */
+
+/* ── Chip cores ── */
+.chip-core{
+  width:80px;height:80px;border-radius:6px;
+  background:rgba(248,113,113,.06);border:1.5px solid rgba(248,113,113,.12);
+  transition:all .2s;
+}
+.chip-core.lit{
+  background:rgba(248,113,113,.4);border-color:rgba(248,113,113,.6);
+  box-shadow:0 0 12px rgba(248,113,113,.3);
+}
+.gpu-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:rgba(52,211,153,.06);
+  transition:all .15s;
+}
+.gpu-dot.lit{
+  background:rgba(52,211,153,.55);
+  box-shadow:0 0 5px rgba(52,211,153,.3);
+}
+
+/* ── Replay scenes ── */
+.replay-scene{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  padding:20px;opacity:0;transition:opacity .6s;pointer-events:none;
+}
+.replay-scene.active{opacity:1;pointer-events:all;position:relative}
+
+/* ── Generation spinner + pulse ── */
+.gen-spinner{
+  width:18px;height:18px;border:2px solid rgba(255,255,255,.1);
+  border-top-color:var(--accent);border-radius:50%;
+  animation:gen-spin .8s linear infinite;
+}
+@keyframes gen-spin{to{transform:rotate(360deg)}}
+.gen-pulse{
+  animation:gen-tok-pulse 1.2s ease-in-out infinite;
+}
+@keyframes gen-tok-pulse{
+  0%,100%{box-shadow:0 0 4px color-mix(in srgb, var(--tc) 20%, transparent)}
+  50%{box-shadow:0 0 16px color-mix(in srgb, var(--tc) 50%, transparent)}
+}
+
+/* ── Training sources ── */
+.train-source{
+  display:flex;align-items:center;gap:8px;
+  background:var(--bg2);border:1px solid rgba(255,255,255,.06);
+  border-radius:8px;padding:6px 10px;transition:all .3s;
+}
+.train-source:hover{border-color:rgba(255,255,255,.12)}
+
+/* ── Responsive ── */
+@media(max-width:768px){
+  .slide{padding:20px 16px 90px}
+  h1{font-size:2em}h2{font-size:1.4em}
+  .split{grid-template-columns:1fr}
+  .step-dot .line{width:10px}
+  .top-bar{padding:0 10px;gap:6px}
+  .key-hint{display:none}
+  .nav-btn{padding:10px 20px;font-size:.82em}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Top bar ── -->
+<div class="top-bar">
+  <div class="title">LLM Simulator</div>
+  <div class="steps-track" id="stepsTrack"></div>
+  <div class="counter">Шаг <span id="curStep">1</span> из <span id="totalSteps">10</span></div>
+</div>
+<div class="progress-line"><div class="fill" id="progressFill"></div></div>
+
+<!-- ── Nav ── -->
+<div class="nav-buttons">
+  <button class="nav-btn secondary" id="btnPrev" disabled>← Назад</button>
+  <button class="nav-btn primary" id="btnNext">Далее →</button>
+</div>
+<div class="key-hint"><kbd>←</kbd> <kbd>→</kbd></div>
+
+<!-- ── Matrix overlay ── -->
+<canvas class="matrix-overlay" id="matrixCanvas"></canvas>
+
+<!-- ══════════════════════════════════════════ -->
+<div class="slides" id="slidesContainer">
+
+<!-- ─── SLIDE 1: TITLE ─── -->
+<div class="slide active" data-step="0">
+  <div class="slide-content" style="text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center">
+    <div style="font-size:.75em;color:var(--muted);font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:24px">Интерактивный симулятор</div>
+    <h1 style="font-size:3.4em;margin-bottom:24px">
+      Путь одного<br>
+      <span style="background:linear-gradient(135deg,var(--accent),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent">запроса к LLM:<br>туда и обратно</span>
+    </h1>
+    <p style="font-size:1.1em;max-width:540px;margin-bottom:36px">
+      Что происходит между тем, как вы нажали Enter —<br>и получили ответ от ChatGPT?
+    </p>
+    <!-- Pipeline preview -->
+    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:center;margin-bottom:12px">
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:.72em;color:var(--text)">Ввод</div>
+      <span style="color:var(--muted);font-size:.7em">→</span>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:.72em;color:var(--dim)">Промпт</div>
+      <span style="color:var(--muted);font-size:.7em">→</span>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:.72em;color:var(--dim)">API</div>
+      <span style="color:var(--muted);font-size:.7em">→</span>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:.72em;color:var(--dim)">Токены</div>
+      <span style="color:var(--muted);font-size:.7em">→</span>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:.72em;color:var(--dim)">Нейросеть</div>
+      <span style="color:var(--muted);font-size:.7em">→</span>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:.72em;color:var(--dim)">Обучение</div>
+      <span style="color:var(--muted);font-size:.7em">→</span>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px 12px;font-size:.72em;color:var(--dim)">Ответ</div>
+    </div>
+    <p style="font-size:.78em;color:var(--muted);margin-top:20px">13 шагов. Каждый можно потыкать.</p>
+  </div>
+</div>
+
+<!-- ─── SLIDE 2: CHATBOT INPUT ─── -->
+<div class="slide" data-step="1">
+  <div class="slide-content" style="text-align:center">
+
+    <div style="font-size:.8em;color:var(--muted);margin-bottom:24px">Вы открыли ChatGPT и набрали:</div>
+
+    <!-- The input — big, central, the hero -->
+    <div style="max-width:600px;margin:0 auto 32px">
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:24px 28px;display:flex;align-items:center;gap:12px">
+        <div style="flex:1;text-align:left">
+          <div style="font-size:1.5em;font-weight:600;color:var(--text);font-family:var(--mono);line-height:1.3" id="typingText"></div>
+        </div>
+        <div onclick="goTo(2)" style="width:40px;height:40px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;flex-shrink:0;box-shadow:0 4px 16px var(--glow);cursor:pointer;transition:transform .15s" onmouseenter="this.style.transform='scale(1.1)'" onmouseleave="this.style.transform=''" id="chatSendBtn">↑</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;padding:0 8px">
+        <span style="font-size:.68em;color:var(--muted)">ChatGPT</span>
+        <span style="font-size:.68em;color:var(--muted);font-family:var(--mono)">gpt-5.4</span>
+      </div>
+    </div>
+
+    <!-- What happens next -->
+    <div style="color:var(--dim);font-size:1em;margin-bottom:8px">Вы нажимаете <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;background:var(--accent);color:#fff;font-size:12px;vertical-align:middle">↑</span></div>
+    <div style="color:var(--muted);font-size:.95em">Что произойдёт дальше?</div>
+
+  </div>
+</div>
+
+<!-- ─── SLIDE 3: SYSTEM PROMPT (step 2) ─── -->
+<div class="slide" data-step="2">
+  <div class="slide-content">
+    <div style="max-width:700px;margin:0 auto">
+
+      <!-- YOUR TEXT — small -->
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:.75em;color:var(--muted);margin-bottom:8px">вы написали:</div>
+        <div style="font-size:1.5em;font-weight:700;color:var(--text);font-family:var(--mono)">"Какая столица Франции?"</div>
+        <div style="font-size:.78em;color:var(--dim);margin-top:4px">4 слова</div>
+      </div>
+
+      <!-- CONTRAST: what model actually gets -->
+      <div style="text-align:center;margin-bottom:16px">
+        <div style="font-size:.85em;color:var(--muted)">но модель получит <strong style="color:var(--text)">вот это</strong>:</div>
+      </div>
+
+      <!-- The big block -->
+      <div class="card" style="background:var(--bg);padding:0;overflow:hidden">
+
+        <!-- System prompt — collapsed, visually BIG -->
+        <div onclick="toggleSysPromptBlock()" style="cursor:pointer;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.04);transition:background .2s" onmouseenter="this.style.background='rgba(244,114,182,.02)'" onmouseleave="this.style.background=''">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="spChevron" class="expand-chevron" style="color:var(--pink)">›</span>
+            <span class="tag t-pink" style="font-size:.65em">system</span>
+            <span style="font-size:.8em;color:var(--dim);flex:1">Невидимая инструкция для модели</span>
+            <span style="font-size:.7em;color:var(--pink);font-family:var(--mono);font-weight:600">~2000 слов</span>
+          </div>
+          <!-- Visual size indicator — row of tiny blocks -->
+          <div style="display:flex;gap:1px;margin-top:8px;margin-left:24px;flex-wrap:wrap;max-height:16px;overflow:hidden" id="sysPromptDots"></div>
+        </div>
+
+        <!-- System prompt detail (hidden) -->
+        <div id="spDetail" style="display:none;padding:12px 20px 16px;border-bottom:1px solid rgba(255,255,255,.04);margin-left:24px">
+          <div style="font-size:.72em;color:var(--muted);margin-bottom:8px">Платформа добавляет это к каждому запросу. Кликните на секцию:</div>
+          <div style="display:flex;flex-direction:column;gap:6px" id="spBlocks">
+            <div class="sp-block" data-sp="identity"><div class="sp-block-header"><div class="sp-block-icon" style="background:rgba(244,114,182,.12);color:var(--pink)">1</div><div class="sp-block-title">Идентичность</div><div class="sp-block-preview">You are ChatGPT, based on GPT-4...</div><div class="sp-block-arrow">›</div></div><div class="sp-block-detail" style="display:none"><div class="sp-block-code">You are ChatGPT, a large language model trained by OpenAI, based on the GPT-4 architecture.</div><div class="sp-block-note">Без этой строки модель не знает кто она. Каждый запрос начинается с напоминания.</div></div></div>
+            <div class="sp-block" data-sp="context"><div class="sp-block-header"><div class="sp-block-icon" style="background:rgba(251,146,60,.12);color:var(--orange)">2</div><div class="sp-block-title">Дата и контекст</div><div class="sp-block-preview">Knowledge cutoff: 2024-01 / Current date: 2025-03</div><div class="sp-block-arrow">›</div></div><div class="sp-block-detail" style="display:none"><div class="sp-block-code">Knowledge cutoff: 2024-01-01
+Current date: 2025-03-29</div><div class="sp-block-note">Модель не знает дату — её вписывают текстом при каждом запросе.</div></div></div>
+            <div class="sp-block" data-sp="tools"><div class="sp-block-header"><div class="sp-block-icon" style="background:rgba(34,211,238,.12);color:var(--cyan)">3</div><div class="sp-block-title">Инструменты</div><div class="sp-block-preview">dalle, browser, python</div><div class="sp-block-arrow">›</div></div><div class="sp-block-detail" style="display:none"><div class="sp-block-code">## dalle — generate images
+## browser — search the web
+## python — execute code</div><div class="sp-block-note">Модель не умеет рисовать от рождения. Ей объясняют текстом: «у тебя есть инструмент dalle».</div></div></div>
+            <div class="sp-block" data-sp="behavior"><div class="sp-block-header"><div class="sp-block-icon" style="background:rgba(99,102,241,.12);color:var(--accent)">4</div><div class="sp-block-title">Поведение</div><div class="sp-block-preview">тон, формат, длина ответов</div><div class="sp-block-arrow">›</div></div><div class="sp-block-detail" style="display:none"><div class="sp-block-code">Be brief in iOS app. Never use emojis unless asked.</div><div class="sp-block-note">Почему в мобильном коротко, а в вебе длинно? Разный промпт — разное поведение.</div></div></div>
+            <div class="sp-block" data-sp="safety"><div class="sp-block-header"><div class="sp-block-icon" style="background:rgba(248,113,113,.12);color:var(--red)">5</div><div class="sp-block-title">Безопасность</div><div class="sp-block-preview">~800 строк правил отказов</div><div class="sp-block-arrow">›</div></div><div class="sp-block-detail" style="display:none"><div class="sp-block-code">Do not generate harmful content, weapons instructions, malware...</div><div class="sp-block-note">Это текстовая инструкция, не встроенная защита. Поэтому её и пытаются обойти.</div></div></div>
+          </div>
+        </div>
+
+        <!-- User message — small in comparison -->
+        <div style="padding:12px 20px;display:flex;align-items:center;gap:8px">
+          <span style="width:24px"></span>
+          <span class="tag t-accent" style="font-size:.65em">user</span>
+          <span style="font-size:.95em;color:var(--text);font-weight:600;font-family:var(--mono)">"Какая столица Франции?"</span>
+          <span style="font-size:.7em;color:var(--dim);margin-left:auto">4 слова</span>
+        </div>
+      </div>
+
+      <!-- Contrast numbers -->
+      <div style="display:flex;gap:12px;margin-top:16px;justify-content:center">
+        <div style="text-align:center">
+          <div style="font-size:2.2em;font-weight:800;color:var(--pink);font-family:var(--mono)">~2000</div>
+          <div style="font-size:.72em;color:var(--dim)">слов от платформы</div>
+        </div>
+        <div style="font-size:2em;color:var(--muted);align-self:center;opacity:.3">vs</div>
+        <div style="text-align:center">
+          <div style="font-size:2.2em;font-weight:800;color:var(--accent);font-family:var(--mono)">4</div>
+          <div style="font-size:.72em;color:var(--dim)">ваших слова</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── SLIDE 4: API + размеры моделей (step 3) ─── -->
+<div class="slide" data-step="3" style="align-items:flex-start">
+  <div class="slide-content">
+    <div style="max-width:900px;margin:0 auto">
+
+      <!-- API REQUEST — 3 уровня раскрытия -->
+      <div class="card" style="background:var(--bg);padding:0;margin-bottom:20px;overflow:hidden">
+
+        <!-- Level 1: POST endpoint (clickable — whole block) -->
+        <div id="apiHeaderBtn" onclick="toggleApiBody()" class="api-header-clickable">
+          <div style="display:flex;align-items:center;gap:10px">
+            <!-- Big chevron -->
+            <span id="apiChevron" style="font-size:1.8em;color:var(--muted);transition:transform .3s;line-height:1;flex-shrink:0">›</span>
+            <div style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <span style="font-family:var(--mono);font-size:.78em;color:var(--green);font-weight:700;background:rgba(52,211,153,.12);padding:4px 10px;border-radius:5px">POST</span>
+                <span style="font-family:var(--mono);font-size:.75em;color:var(--dim)">https://api.openai.com/v1/chat/completions</span>
+              </div>
+              <!-- Flight animation -->
+              <div style="display:flex;align-items:center;justify-content:center;gap:16px">
+                <span style="font-size:.75em;color:var(--dim)">💻 вы</span>
+                <div style="flex:0 0 220px;position:relative;height:3px;background:var(--bg3);border-radius:2px">
+                  <div style="position:absolute;width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--glow);top:-5px;animation:flyRight 2s ease-in-out infinite"></div>
+                </div>
+                <span style="font-size:.75em;color:var(--accent)">🏢 сервер</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Level 2: JSON body (hidden initially) -->
+        <div id="apiBody" style="display:none;border-top:1px solid rgba(255,255,255,.04);padding:16px 24px">
+          <div style="font-family:var(--mono);font-size:.72em;line-height:1.7;color:var(--muted)">
+            <div>{</div>
+            <div style="padding-left:16px"><span style="color:var(--orange)">"model"</span>: <span style="color:var(--green)">"gpt-5.4"</span>,</div>
+            <div style="padding-left:16px"><span style="color:var(--orange)">"messages"</span>: [</div>
+
+            <!-- Level 3a: SYSTEM message -->
+            <div onclick="toggleApiSys(event)" style="display:flex;align-items:flex-start;gap:6px;padding:6px 4px;margin:4px 0 4px 20px;cursor:pointer;border-radius:6px;border:1px solid rgba(244,114,182,.1);transition:all .2s">
+              <span id="apiSysArrow" class="expand-chevron" style="color:var(--pink)">›</span>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="color:var(--pink);font-weight:600">{ "role": "system", "content":</span>
+                  <span id="apiSysPreview" style="color:var(--muted);opacity:.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"You are ChatGPT..."</span>
+                  <span style="color:var(--pink)">}</span>
+                </div>
+                <div id="apiSysDetail" style="display:none;margin-top:8px;padding:10px 12px;background:rgba(244,114,182,.04);border-radius:6px;border-left:2px solid var(--pink);font-size:.95em;color:var(--dim);white-space:pre-wrap;max-height:140px;overflow-y:auto;line-height:1.5">You are ChatGPT, a large language model trained by OpenAI, based on the GPT-4 architecture.
+Knowledge cutoff: 2024-01-01
+Current date: 2025-03-29
+
+# Tools
+## dalle — generate images
+## browser — search the web
+## python — execute code
+
+# Safety
+Do not generate harmful content...
+
+... ещё ~1500 слов инструкций ...</div>
+              </div>
+            </div>
+
+            <!-- Level 3b: USER message -->
+            <div onclick="toggleApiUser(event)" style="display:flex;align-items:flex-start;gap:6px;padding:6px 4px;margin:4px 0 4px 20px;cursor:pointer;border-radius:6px;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);transition:all .2s">
+              <span id="apiUserArrow" class="expand-chevron" style="color:var(--accent)">›</span>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <span style="color:var(--accent);font-weight:600">{ "role": "user", "content":</span>
+                  <span style="color:var(--text);font-weight:700">"Какая столица Франции?"</span>
+                  <span style="color:var(--accent)">}</span>
+                </div>
+                <div id="apiUserDetail" style="display:none;margin-top:6px;padding:6px 10px;font-size:.95em;color:var(--dim);background:rgba(99,102,241,.04);border-radius:4px">↑ Ваши 4 слова — одна строка в запросе. Всё остальное добавила платформа.</div>
+              </div>
+            </div>
+
+            <div style="padding-left:16px">]</div>
+            <div>}</div>
+          </div>
+
+          <div style="text-align:center;margin-top:12px;font-size:.7em;color:var(--muted)">
+            этот JSON летит по сети на GPU-сервер
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;margin-bottom:12px;color:var(--dim);font-size:.82em">
+        Почему нельзя локально? Посмотрите масштаб:
+      </div>
+      <!-- Timeline buttons -->
+      <div style="display:flex;gap:0;justify-content:center;margin-bottom:24px;position:relative" id="modelButtons">
+        <!-- connecting line -->
+        <div style="position:absolute;top:50%;left:10%;right:10%;height:2px;background:var(--bg3);z-index:0"></div>
+        <button class="model-size-btn active" data-key="gpt2" style="z-index:1"><span style="color:var(--muted);font-size:.75em">2019</span><br><strong>GPT-2</strong><br><span style="font-size:.75em;opacity:.6">1.5B</span></button>
+        <div style="color:var(--green);font-size:.7em;align-self:center;padding:0 2px;z-index:1;font-weight:700">×117</div>
+        <button class="model-size-btn" data-key="gpt3" style="z-index:1"><span style="color:var(--muted);font-size:.75em">2020</span><br><strong>GPT-3</strong><br><span style="font-size:.75em;opacity:.6">175B</span></button>
+        <div style="color:var(--orange);font-size:.7em;align-self:center;padding:0 2px;z-index:1;font-weight:700">×10</div>
+        <button class="model-size-btn" data-key="gpt4" style="z-index:1"><span style="color:var(--muted);font-size:.75em">2023</span><br><strong>GPT-4</strong><br><span style="font-size:.75em;opacity:.6">~1.8T</span></button>
+        <div style="color:var(--muted);font-size:.7em;align-self:center;padding:0 2px;z-index:1;font-weight:700">×1.5–3</div>
+        <button class="model-size-btn" data-key="gpt5" style="z-index:1"><span style="color:var(--muted);font-size:.75em">2026</span><br><strong>GPT-5.4</strong><br><span style="font-size:.75em;opacity:.6">~3T active</span></button>
+      </div>
+
+      <!-- Main card -->
+      <div class="card" style="background:var(--bg);padding:20px">
+        <!-- Header -->
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+          <span id="modelName" style="font-size:1.05em;color:var(--text);font-weight:700"></span>
+          <span id="modelJump" style="font-family:var(--mono);font-size:.8em;font-weight:700;color:var(--green)"></span>
+        </div>
+        <div id="modelMath" style="font-size:.72em;color:var(--muted);font-family:var(--mono);margin-bottom:16px"></div>
+
+        <!-- Two columns: params viz + macbooks -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+          <!-- Left: parameter dots -->
+          <div>
+            <div style="font-size:.75em;color:var(--muted);margin-bottom:6px">
+              <span class="info-click" data-tooltip="Параметр — это одно число (вес) внутри нейросети. Модель «знает» мир только через эти числа. Обучение — это подбор правильных значений для каждого." style="border-bottom:1px dashed var(--accent);color:var(--accent);cursor:pointer">Параметры</span>
+              модели:
+            </div>
+            <div id="paramGrid" style="display:flex;flex-wrap:wrap;gap:1px;align-content:flex-start;min-height:60px;position:relative"></div>
+            <div id="paramLabel" style="font-size:.72em;color:var(--dim);font-family:var(--mono);margin-top:6px"></div>
+          </div>
+
+          <!-- Right: macbooks -->
+          <div>
+            <div style="font-size:.75em;color:var(--muted);margin-bottom:6px">
+              Сколько
+              <span class="info-click" data-tooltip="Модель нужно целиком загрузить в оперативную память (RAM/VRAM), чтобы она работала. Нельзя загрузить «половину» — или вся, или никак." style="border-bottom:1px dashed var(--accent);color:var(--accent);cursor:pointer">памяти</span>
+              нужно:
+            </div>
+            <div id="laptopGrid" style="display:flex;flex-wrap:wrap;gap:2px;align-content:flex-start;min-height:60px"></div>
+            <div id="laptopLabel" style="font-size:.72em;color:var(--dim);font-family:var(--mono);margin-top:6px"></div>
+          </div>
+        </div>
+
+        <!-- Verdict -->
+        <div id="modelVerdict" style="margin-top:16px;font-size:.85em;text-align:center;padding:10px;border-radius:8px;font-weight:500"></div>
+      </div>
+
+      <!-- Note -->
+      <div id="modelNote" style="margin-top:10px;text-align:center;font-size:.72em;color:var(--muted);font-style:italic"></div>
+
+      <!-- (tooltip moved to body level) -->
+    </div>
+  </div>
+</div>
+
+<!-- ─── SLIDE 5: Токенизация ─── -->
+<div class="slide" data-step="4">
+  <div class="slide-content">
+
+    <div style="max-width:700px;margin:0 auto">
+      <div style="text-align:center;margin-bottom:32px">
+        <h2 style="margin-bottom:8px">Нейросеть понимает только числа</h2>
+        <p style="font-size:.9em;margin:0">Первый шаг — разрезать текст на кусочки и найти каждый в словаре</p>
+      </div>
+
+      <!-- THE ONE VISUAL: text splits into tokens -->
+      <div class="card" style="background:var(--bg);padding:32px;text-align:center">
+
+        <!-- Original text -->
+        <div style="font-size:1.3em;color:var(--text);font-weight:600;font-family:var(--mono);margin-bottom:24px">
+          Какая столица Франции?
+        </div>
+
+        <!-- Divider arrow -->
+        <div style="color:var(--muted);font-size:1.4em;margin-bottom:24px">↓</div>
+
+        <!-- Tokens with IDs below -->
+        <div style="display:inline-flex;flex-wrap:wrap;gap:6px;justify-content:center" id="queryTokens">
+          <div class="tok-unit" data-tok-info="Частая комбинация букв в русском — BPE-алгоритм часто видел «Как» как цельный кусок при обучении">
+            <div class="token-chip" style="--tc:var(--pink)">Как</div>
+            <div class="tok-id-label" style="color:var(--pink)">15234</div>
+          </div>
+          <div class="tok-unit" data-tok-info="Токенизатор не знает грамматику — он просто режет по частотности. «ая» встречалось часто само по себе, поэтому стало отдельным токеном">
+            <div class="token-chip" style="--tc:var(--orange)">ая</div>
+            <div class="tok-id-label" style="color:var(--orange)">892</div>
+          </div>
+          <div class="tok-unit" data-tok-info="▁ = пробел перед словом. «стол» — частый кусок, но «столица» целиком не попала в словарь как один токен">
+            <div class="token-chip" style="--tc:var(--cyan)">▁стол</div>
+            <div class="tok-id-label" style="color:var(--cyan)">44521</div>
+          </div>
+          <div class="tok-unit" data-tok-info="«ица» — просто остаток от «столица» после того как «стол» откусили. Никакой лингвистики, чистая статистика">
+            <div class="token-chip" style="--tc:var(--green)">ица</div>
+            <div class="tok-id-label" style="color:var(--green)">1847</div>
+          </div>
+          <div class="tok-unit" data-tok-info="«Франц» часто встречалось в обучающих текстах (Франция, Франциско, французский) — стало отдельным токеном">
+            <div class="token-chip" style="--tc:var(--accent)">▁Франц</div>
+            <div class="tok-id-label" style="color:var(--accent)">28934</div>
+          </div>
+          <div class="tok-unit" data-tok-info="Остаток от «Франции». Комбинация «ии» достаточно частая в русском, чтобы стать отдельным токеном">
+            <div class="token-chip" style="--tc:var(--yellow)">ии</div>
+            <div class="tok-id-label" style="color:var(--yellow)">2910</div>
+          </div>
+          <div class="tok-unit" data-tok-info="Знаки препинания почти всегда отдельный токен — они встречаются в любом контексте">
+            <div class="token-chip" style="--tc:var(--red)">?</div>
+            <div class="tok-id-label" style="color:var(--red)">30</div>
+          </div>
+        </div>
+
+        <!-- Token detail (appears on click) -->
+        <div id="tokenDetail" style="display:none;margin-top:20px;background:var(--bg2);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px 16px;font-size:.85em;text-align:left">
+        </div>
+
+        <div style="margin-top:20px;color:var(--muted);font-size:.78em">кликните на любой токен</div>
+      </div>
+
+      <!-- Questions row -->
+      <div style="display:flex;gap:10px;margin-top:16px;justify-content:center;flex-wrap:wrap">
+        <div class="info-click pill-q" data-tooltip="Нейросеть — математика. Она умножает матрицы. Текст для неё — бессмысленные закорючки. Поэтому любой текст сначала переводят в числа, и только потом подают в сеть.">Зачем числа?</div>
+        <div class="info-click pill-q" data-tooltip="Если каждая буква = отдельный номер, предложение из 25 букв = 25 шагов вычислений. Слишком длинно — сеть теряет контекст. Кусочки покрупнее = короче последовательность = лучше результат.">Почему не по буквам?</div>
+        <div class="info-click pill-q" data-tooltip="Словарь из ВСЕХ слов всех языков — это миллионы. Редкие слова модель не выучит (встретились 1-2 раза). Компромисс: ~100K кусочков, каждый встречался в обучении тысячи раз.">Почему не по словам?</div>
+        <div class="info-click pill-q" data-tooltip="Весь system prompt (~2000 слов) тоже нарезается на токены — примерно 800 штук. Они добавляются к каждому вашему запросу. За них тоже платят — вот почему API стоит денег.">А system prompt тоже?</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── SLIDE 6: Эмбеддинги ─── -->
+<div class="slide" data-step="5" style="align-items:flex-start"><div class="slide-content">
+
+  <div style="max-width:750px;margin:0 auto">
+    <div style="text-align:center;margin-bottom:12px">
+      <h2 style="margin-bottom:4px;font-size:1.6em">Эмбеддинги: номер — это не смысл</h2>
+    </div>
+
+    <!-- БЫЛО: узнаваемые токены с прошлого экрана -->
+    <div class="card" style="background:var(--bg);padding:12px 20px;text-align:center;margin-bottom:4px;border-bottom:none;border-radius:14px 14px 0 0">
+      <div style="font-size:.65em;color:var(--muted);margin-bottom:4px">с прошлого шага — ID токенов:</div>
+      <div style="display:inline-flex;gap:6px;flex-wrap:wrap;justify-content:center">
+        <div class="tok-unit"><div class="token-chip" style="--tc:var(--pink);font-size:.8em;padding:4px 8px">Как</div><div class="tok-id-label" style="color:var(--pink)">15234</div></div>
+        <div class="tok-unit"><div class="token-chip" style="--tc:var(--orange);font-size:.8em;padding:4px 8px">ая</div><div class="tok-id-label" style="color:var(--orange)">892</div></div>
+        <div class="tok-unit"><div class="token-chip" style="--tc:var(--cyan);font-size:.8em;padding:4px 8px">стол</div><div class="tok-id-label" style="color:var(--cyan)">44521</div></div>
+        <div class="tok-unit"><div class="token-chip" style="--tc:var(--green);font-size:.8em;padding:4px 8px">ица</div><div class="tok-id-label" style="color:var(--green)">1847</div></div>
+        <div class="tok-unit"><div class="token-chip" style="--tc:var(--accent);font-size:.8em;padding:4px 8px">Франц</div><div class="tok-id-label" style="color:var(--accent)">28934</div></div>
+        <div class="tok-unit"><div class="token-chip" style="--tc:var(--yellow);font-size:.8em;padding:4px 8px">ии</div><div class="tok-id-label" style="color:var(--yellow)">2910</div></div>
+        <div class="tok-unit"><div class="token-chip" style="--tc:var(--red);font-size:.8em;padding:4px 8px">?</div><div class="tok-id-label" style="color:var(--red)">30</div></div>
+      </div>
+    </div>
+
+    <!-- СТРЕЛКА: процесс (кликабельная — показывает таблицу) -->
+    <div style="text-align:center;padding:8px 0;background:var(--bg2);border-left:1px solid rgba(255,255,255,.06);border-right:1px solid rgba(255,255,255,.06)">
+      <span style="color:var(--muted);font-size:1.2em">↓</span>
+      <span style="font-size:.72em;color:var(--accent);border-bottom:1px dashed var(--accent);cursor:pointer;margin-left:6px" onclick="document.getElementById('embLookupTable').style.display = document.getElementById('embLookupTable').style.display==='none'?'block':'none'">каждый ID → ищем в таблице эмбеддингов → получаем вектор ▾</span>
+    </div>
+
+    <!-- Lookup table (hidden, shown on click) -->
+    <div id="embLookupTable" style="display:none;background:var(--bg2);border-left:1px solid rgba(255,255,255,.06);border-right:1px solid rgba(255,255,255,.06);padding:12px 20px;overflow-x:auto">
+      <div style="font-size:.68em;color:var(--muted);margin-bottom:8px">Таблица эмбеддингов (~100K строк × 4096 столбцов). Находим строку по ID токена:</div>
+      <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.62em">
+        <thead>
+          <tr style="color:var(--muted)">
+            <td style="padding:3px 8px;border-bottom:1px solid rgba(255,255,255,.06)">ID</td>
+            <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">токен</td>
+            <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">[1]</td>
+            <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">[2]</td>
+            <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">[3]</td>
+            <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">...</td>
+            <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">[4096]</td>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="color:var(--muted);opacity:.3"><td style="padding:2px 8px">28932</td><td>ком</td><td>0.45</td><td>-0.12</td><td>0.78</td><td>...</td><td>0.33</td></tr>
+          <tr style="color:var(--muted);opacity:.3"><td style="padding:2px 8px">28933</td><td>пер</td><td>0.78</td><td>0.33</td><td>-0.56</td><td>...</td><td>-0.12</td></tr>
+          <tr style="background:rgba(99,102,241,.08);color:var(--accent);font-weight:600;border-radius:4px"><td style="padding:4px 8px">28934</td><td style="color:var(--text)">Франц</td><td>0.12</td><td>-0.87</td><td>0.34</td><td>...</td><td>0.63</td></tr>
+          <tr style="color:var(--muted);opacity:.3"><td style="padding:2px 8px">28935</td><td>вод</td><td>-0.56</td><td>0.91</td><td>0.03</td><td>...</td><td>-0.44</td></tr>
+          <tr style="color:var(--muted);opacity:.3"><td style="padding:2px 8px">28936</td><td>ные</td><td>0.23</td><td>-0.44</td><td>0.67</td><td>...</td><td>0.12</td></tr>
+        </tbody>
+      </table>
+      <div style="font-size:.62em;color:var(--muted);margin-top:6px;text-align:center">↑ находим строку 28934 → забираем вектор [0.12, -0.87, 0.34, ...] — это и есть <strong style="color:var(--accent)">эмбеддинг</strong> токена "Франц"</div>
+    </div>
+
+    <!-- СТАЛО: вектора -->
+    <div class="card" style="background:var(--bg);padding:12px 20px;text-align:center;margin-bottom:12px;border-top:none;border-radius:0 0 14px 14px">
+      <div style="font-size:.68em;color:var(--muted);margin-bottom:8px">теперь — <span class="info-click" data-tooltip="Вектор — список чисел. Как GPS-координаты, но вместо 2 чисел (широта, долгота) — 4096. Каждое кодирует аспект смысла слова." style="border-bottom:1px dashed var(--accent);color:var(--accent);cursor:pointer">вектора</span> (списки из 4096 чисел):</div>
+      <!-- Vector table with meaning labels -->
+      <div style="overflow-x:auto">
+        <table style="margin:0 auto;border-collapse:collapse;font-family:var(--mono);font-size:.68em">
+          <thead>
+            <tr>
+              <td style="padding:4px 8px;color:var(--muted);font-size:.9em;text-align:left">измерение</td>
+              <td style="padding:4px 6px;color:var(--pink);text-align:center">Как</td>
+              <td style="padding:4px 6px;color:var(--orange);text-align:center">ая</td>
+              <td style="padding:4px 6px;color:var(--cyan);text-align:center">стол</td>
+              <td style="padding:4px 6px;color:var(--green);text-align:center">ица</td>
+              <td style="padding:4px 6px;color:var(--accent);text-align:center">Франц</td>
+              <td style="padding:4px 6px;color:var(--yellow);text-align:center">ии</td>
+              <td style="padding:4px 6px;color:var(--red);text-align:center">?</td>
+            </tr>
+          </thead>
+          <tbody id="embTableBody"></tbody>
+        </table>
+      </div>
+      <div style="font-size:.65em;color:var(--muted);margin-top:8px;text-align:center">
+        <span class="info-click" data-tooltip="4096 строк достаточно, чтобы закодировать 100 000 разных токенов. Каждый токен — уникальная комбинация значений в этих 4096 измерениях. Как GPS-координаты: всего 2 числа (широта, долгота) кодируют любую точку на Земле. 4096 чисел кодируют любой смысл." style="border-bottom:1px dashed var(--accent);color:var(--accent);cursor:pointer">4096 строк × 100K токенов — почему хватает?</span>
+      </div>
+    </div>
+
+    <!-- The insight: WHY vectors → semantic map -->
+    <!-- Questions -->
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+      <div class="info-click pill-q" data-tooltip="Изначально — случайные числа. В процессе обучения на терабайтах текста модель подбирает значения так, чтобы слова из похожих контекстов получили похожие координаты. 'Париж' и 'Берлин' часто встречаются в одних предложениях — их вектора сближаются.">Откуда берутся значения?</div>
+      <div class="info-click pill-q" data-tooltip="Не буквально. Нейросеть не знает слов 'география' или 'вопрос'. Каждое измерение кодирует абстрактный паттерн, который мы условно называем. Но эффект тот же: похожие слова → похожие числа.">Измерения реальные?</div>
+    </div>
+
+    <!-- Key insight — bridge to next screen -->
+    <div style="text-align:center;margin-top:16px;padding:14px 20px;border:1px dashed rgba(255,255,255,.08);border-radius:10px">
+      <div style="font-size:.95em;color:var(--text);font-weight:600">Каждое слово уже знает <em>что</em> оно такое.</div>
+      <div style="font-size:.85em;color:var(--muted);margin-top:4px">Но не знает что стоит рядом. Об этом — на следующем шаге.</div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ─── SLIDE 7: Attention ─── -->
+<div class="slide" data-step="6" style="align-items:flex-start"><div class="slide-content">
+  <div style="max-width:750px;margin:0 auto">
+
+    <div style="text-align:center;margin-bottom:12px">
+      <h2 style="font-size:1.5em;margin-bottom:6px">Attention: слова узнают контекст</h2>
+      <p style="font-size:.85em;margin:0">Каждое слово знает <em>что</em> оно такое, но не знает <em>что рядом</em>. Пора познакомиться.</p>
+    </div>
+
+    <!-- БЫЛО: изолированные вектора -->
+    <div class="card" style="background:var(--bg);padding:14px 20px;text-align:center;margin-bottom:4px;border-radius:14px 14px 0 0;border-bottom:none">
+      <div style="font-size:.65em;color:var(--muted);margin-bottom:6px">с прошлого шага — вектора (каждый знает только себя):</div>
+      <div style="display:inline-flex;gap:8px;flex-wrap:wrap;justify-content:center" id="attTokens">
+        <div class="att-token" data-idx="0" style="--tc:var(--pink)"><span class="att-label">Как</span><span class="att-sub">вопрос</span></div>
+        <div class="att-token" data-idx="1" style="--tc:var(--orange)"><span class="att-label">ая</span><span class="att-sub">окончание</span></div>
+        <div class="att-token" data-idx="2" style="--tc:var(--cyan)"><span class="att-label">стол</span><span class="att-sub">корень</span></div>
+        <div class="att-token" data-idx="3" style="--tc:var(--green)"><span class="att-label">ица</span><span class="att-sub">суффикс</span></div>
+        <div class="att-token active" data-idx="4" style="--tc:var(--accent)"><span class="att-label">Франц</span><span class="att-sub">страна</span></div>
+        <div class="att-token" data-idx="5" style="--tc:var(--yellow)"><span class="att-label">ии</span><span class="att-sub">окончание</span></div>
+        <div class="att-token" data-idx="6" style="--tc:var(--red)"><span class="att-label">?</span><span class="att-sub">пунктуация</span></div>
+      </div>
+      <div style="font-size:.65em;color:var(--accent);margin-top:8px">кликните на любой токен</div>
+    </div>
+
+    <!-- ПРОЦЕСС: attention рейтинг -->
+    <div class="card" style="background:var(--bg);padding:16px 20px;border-radius:0;border-top:none;border-bottom:none" id="attProcess">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:.9em;font-weight:600;color:var(--text)" id="attWho">Франц</span>
+        <span style="font-size:.78em;color:var(--muted)">смотрит на остальных: «кто мне важен?»</span>
+      </div>
+      <!-- Rating bars -->
+      <div id="attBars" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+
+    <!-- СТАЛО: вектор до и после -->
+    <div class="card" style="background:var(--bg);padding:14px 20px;border-radius:0 0 14px 14px;border-top:none">
+      <div style="font-size:.72em;color:var(--muted);margin-bottom:8px;text-align:center">Как изменился вектор <strong style="color:var(--accent)">«Франц»</strong> — было vs стало:</div>
+      <table style="margin:0 auto;border-collapse:collapse;font-family:var(--mono);font-size:.68em;width:100%">
+        <thead>
+          <tr>
+            <td style="padding:3px 8px;color:var(--muted)">измерение</td>
+            <td style="padding:3px 8px;color:var(--muted);text-align:center">до</td>
+            <td style="padding:3px 8px;color:var(--muted);text-align:center"></td>
+            <td style="padding:3px 8px;color:var(--accent);text-align:center;font-weight:600">после</td>
+            <td style="padding:3px 8px;color:var(--muted)"></td>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:2px 8px;color:var(--dim)">география</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--accent);opacity:.5">0.9</td>
+            <td style="padding:2px 4px;color:var(--muted)">→</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--accent);font-weight:700">0.9</td>
+            <td style="padding:2px 8px;font-size:.85em;color:var(--muted)">не изменилось</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 8px;color:var(--dim)">государство</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--accent);opacity:.5">0.8</td>
+            <td style="padding:2px 4px;color:var(--muted)">→</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--accent);font-weight:700">0.9</td>
+            <td style="padding:2px 8px;font-size:.85em;color:var(--green)">↑ впитал «столица»</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 8px;color:var(--dim)">столица</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--accent);opacity:.5">0.1</td>
+            <td style="padding:2px 4px;color:var(--muted)">→</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--green);font-weight:700">0.7</td>
+            <td style="padding:2px 8px;font-size:.85em;color:var(--green)">↑ впитал «стол»+«ица»</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 8px;color:var(--dim)">вопрос</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--accent);opacity:.5">0.0</td>
+            <td style="padding:2px 4px;color:var(--muted)">→</td>
+            <td style="padding:2px 8px;text-align:center;color:var(--orange);font-weight:700">0.3</td>
+            <td style="padding:2px 8px;font-size:.85em;color:var(--orange)">↑ впитал «Как»+«?»</td>
+          </tr>
+          <tr style="color:var(--muted);opacity:.4">
+            <td style="padding:2px 8px" colspan="5">···  ещё 4092 измерения  ···</td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="text-align:center;margin-top:10px;font-size:.78em;color:var(--dim)">
+        Теперь <strong style="color:var(--accent)">«Франц»</strong> знает: речь идёт о столице, и это вопрос.
+      </div>
+    </div>
+
+    <!-- Pills -->
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px">
+      <div class="info-click pill-q" data-tooltip="Каждый токен генерирует Query ('что я ищу?') и Key ('что я могу предложить'). Query × Key = оценка совпадения. Чем больше совпадение — тем сильнее связь. Это всё — умножения матриц, чистая математика.">Как считается рейтинг?</div>
+      <div class="info-click pill-q" data-tooltip="Каждый токен также генерирует Value ('моё содержимое'). Токен впитывает Value остальных пропорционально весам. 65% содержимого 'Франц' + 12% содержимого 'Какая' + ... Как взвешенное среднее.">Что впитывается?</div>
+      <div class="info-click pill-q" data-tooltip="Нет! Attention + FFN = один слой. В GPT-5.4 таких слоёв ~60. Каждый раз вектора обновляются, связи уточняются. Слой 1: 'столица связана с Франция'. Слой 10: 'ответ — Париж'. Слои 11-60: уточнение формулировки.">Это происходит один раз?</div>
+    </div>
+
+  </div>
+</div></div>
+
+<!-- ─── SLIDE 8: FFN ─── -->
+<div class="slide" data-step="7" style="align-items:flex-start"><div class="slide-content">
+  <div style="max-width:850px;margin:0 auto">
+
+    <div style="text-align:center;margin-bottom:12px">
+      <h2 style="font-size:1.5em;margin-bottom:6px">Feed-Forward Network: модель вспоминает факты</h2>
+      <p style="font-size:.85em;margin:0">Вектор знает контекст. Теперь нужно <em>вспомнить</em> ответ.</p>
+    </div>
+
+    <!-- FFN: горизонтальный layout — вектор → ромб → вектор -->
+    <div class="card" style="background:var(--bg);padding:20px">
+      <div style="text-align:center;margin-bottom:12px">
+        <span style="font-size:.72em;color:var(--muted)">Берём вектор </span>
+        <span style="font-size:1em;font-weight:700;color:var(--accent);font-family:var(--mono);background:rgba(99,102,241,.1);padding:2px 10px;border-radius:6px">столица</span>
+      </div>
+
+      <!-- Horizontal: vector → FFN → vector -->
+      <div style="display:flex;align-items:stretch;gap:0;justify-content:center">
+
+        <!-- ВХОД: вектор с названиями -->
+        <div style="display:flex;flex-direction:column;justify-content:center;min-width:110px">
+          <div style="font-size:.6em;color:var(--accent);font-family:var(--mono);text-align:center;margin-bottom:6px">вектор [4096]</div>
+          <div style="background:var(--bg2);border:1px solid rgba(99,102,241,.2);border-radius:6px;padding:8px;font-family:var(--mono);font-size:.65em;display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;justify-content:space-between;gap:8px"><span style="color:var(--muted);font-size:.85em">география</span><span style="color:var(--accent)">0.90</span></div>
+            <div style="display:flex;justify-content:space-between;gap:8px"><span style="color:var(--muted);font-size:.85em">гос.устр.</span><span style="color:var(--cyan)">0.70</span></div>
+            <div style="display:flex;justify-content:space-between;gap:8px"><span style="color:var(--muted);font-size:.85em">вопрос</span><span style="color:var(--orange)">0.30</span></div>
+            <div style="display:flex;justify-content:space-between;gap:8px"><span style="color:var(--muted);font-size:.85em">европа</span><span style="color:var(--pink)">0.90</span></div>
+            <div style="color:var(--muted);text-align:center;font-size:.75em;opacity:.4">···4092···</div>
+            <div style="display:flex;justify-content:space-between;gap:8px"><span style="color:var(--muted);font-size:.85em">#4091</span><span style="color:var(--dim)">0.02</span></div>
+          </div>
+        </div>
+
+        <!-- Стрелка расширения -->
+        <div style="display:flex;align-items:center;padding:0 4px">
+          <svg width="30" height="220" viewBox="0 0 30 220">
+            <path d="M5,80 Q15,80 25,10" stroke="rgba(34,211,238,.12)" fill="none" stroke-width="1"/>
+            <path d="M5,110 L25,110" stroke="rgba(34,211,238,.15)" fill="none" stroke-width="1"/>
+            <path d="M5,140 Q15,140 25,210" stroke="rgba(34,211,238,.12)" fill="none" stroke-width="1"/>
+          </svg>
+        </div>
+
+        <!-- FFN: высокий блок с кликабельными нейронами -->
+        <div style="display:flex;flex-direction:column;justify-content:center;min-width:160px">
+          <div style="font-size:.6em;color:var(--cyan);font-family:var(--mono);text-align:center;margin-bottom:6px">FFN [16384 нейронов]</div>
+          <div style="background:var(--bg2);border:1px solid rgba(34,211,238,.12);border-radius:6px;padding:8px;position:relative;min-height:220px">
+            <canvas id="ffnNeuronCanvas" width="140" height="200" style="width:100%;height:100%;display:block;border-radius:4px;cursor:pointer"></canvas>
+            <div style="position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:.5em;color:rgba(34,211,238,.3);font-family:var(--mono)">
+              кликните на нейрон
+            </div>
+          </div>
+          <div style="font-size:.52em;color:var(--dim);text-align:center;margin-top:4px">×4 расширение, потом сжатие</div>
+        </div>
+
+        <!-- Стрелка сжатия -->
+        <div style="display:flex;align-items:center;padding:0 4px">
+          <svg width="30" height="220" viewBox="0 0 30 220">
+            <path d="M5,10 Q15,80 25,80" stroke="rgba(52,211,153,.12)" fill="none" stroke-width="1"/>
+            <path d="M5,110 L25,110" stroke="rgba(52,211,153,.15)" fill="none" stroke-width="1"/>
+            <path d="M5,210 Q15,140 25,140" stroke="rgba(52,211,153,.12)" fill="none" stroke-width="1"/>
+          </svg>
+        </div>
+
+        <!-- ВЫХОД: вектор с диффом и названиями -->
+        <div style="display:flex;flex-direction:column;justify-content:center;min-width:140px">
+          <div style="font-size:.6em;color:var(--green);font-family:var(--mono);text-align:center;margin-bottom:6px">вектор [4096]</div>
+          <div style="background:var(--bg2);border:1px solid rgba(52,211,153,.2);border-radius:6px;padding:8px;font-family:var(--mono);font-size:.65em;display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;justify-content:space-between;gap:4px"><span style="color:var(--muted);font-size:.85em">география</span><span style="color:var(--accent)">0.85</span><span style="color:var(--red);font-size:.8em;opacity:.5">▾.05</span></div>
+            <div style="display:flex;justify-content:space-between;gap:4px"><span style="color:var(--muted);font-size:.85em">гос.устр.</span><span style="color:var(--cyan)">0.75</span><span style="color:var(--green);font-size:.8em">▴.05</span></div>
+            <div style="display:flex;justify-content:space-between;gap:4px"><span style="color:var(--muted);font-size:.85em">вопрос</span><span style="color:var(--orange)">0.35</span><span style="color:var(--green);font-size:.8em">▴.05</span></div>
+            <div style="display:flex;justify-content:space-between;gap:4px"><span style="color:var(--muted);font-size:.85em">европа</span><span style="color:var(--pink)">0.82</span><span style="color:var(--red);font-size:.8em;opacity:.5">▾.08</span></div>
+            <div style="color:var(--muted);text-align:center;font-size:.75em;opacity:.4">···4092···</div>
+            <div style="display:flex;justify-content:space-between;gap:4px;font-weight:700"><span style="color:var(--muted);font-size:.85em">#4091</span><span style="color:var(--yellow)">0.78</span><span style="color:var(--green);font-size:.8em">▴.76</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;margin-top:10px;font-size:.72em;color:var(--dim)">
+        Каждый из 7 токенов проходит тот же путь. Числа изменились — вектор обновлён.
+      </div>
+    </div>
+
+    <!-- Insight -->
+    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;justify-content:center">
+      <div class="info-click pill-q" data-tooltip="Каждая линия на диаграмме — один параметр (число-вес). Слой 4096→16384 = 67 миллионов линий. Плюс 16384→4096 = ещё 67 миллионов. Итого один FFN = 134 миллиона параметров. А таких FFN — 60 (по одному на слой). Вот откуда миллиарды.">Откуда миллиарды параметров?</div>
+      <div class="info-click pill-q" data-tooltip="При обучении на терабайтах текста. Модель видела миллионы раз 'столица Франции — Париж' и подобрала веса так, что нейроны реагируют на этот паттерн. Если факт редкий или его не было в обучении — модель его не знает (или галлюцинирует).">Откуда нейроны знают факты?</div>
+      <div class="info-click pill-q" data-tooltip="В GPT-5.4 вместо одного FFN — 256 маленьких ('экспертов'). Роутер смотрит на вектор и отправляет его в 8 из 256. Один эксперт знает про географию, другой про код. Поэтому модель 3T параметров, но считает только ~100B за раз.">Что такое MoE?</div>
+    </div>
+
+  </div>
+</div></div>
+
+<!-- ─── SLIDE 9: Обучение — дистилляция знаний ─── -->
+<div class="slide" data-step="8" style="align-items:flex-start"><div class="slide-content">
+  <div style="max-width:900px;margin:0 auto">
+
+    <div style="text-align:center;margin-bottom:16px">
+      <h2 style="font-size:1.5em;margin-bottom:6px">Откуда нейроны знают ответ?</h2>
+      <p style="font-size:.85em;margin:0">Прежде чем модель начала отвечать — она <em>3 месяца читала интернет</em>.</p>
+    </div>
+
+    <!-- Main horizontal layout: Sources → Stream → Neurons -->
+    <div class="card" style="background:var(--bg);padding:20px;position:relative;overflow:hidden">
+
+      <div style="display:flex;align-items:stretch;gap:0;justify-content:center;min-height:340px">
+
+        <!-- LEFT: Sources -->
+        <div style="display:flex;flex-direction:column;justify-content:center;min-width:150px;gap:8px;flex-shrink:0">
+          <div style="font-size:.6em;color:var(--muted);font-family:var(--mono);text-align:center;margin-bottom:4px">источники обучения</div>
+          <div class="train-source" style="--sc:var(--accent)">
+            <span style="font-size:1.1em">📚</span>
+            <div><div style="font-size:.78em;font-weight:600;color:var(--accent)">Википедия</div><div style="font-size:.58em;color:var(--muted)">6.7M статей</div></div>
+          </div>
+          <div class="train-source" style="--sc:var(--cyan)">
+            <span style="font-size:1.1em">💻</span>
+            <div><div style="font-size:.78em;font-weight:600;color:var(--cyan)">GitHub</div><div style="font-size:.58em;color:var(--muted)">100M+ репо</div></div>
+          </div>
+          <div class="train-source" style="--sc:var(--orange)">
+            <span style="font-size:1.1em">📰</span>
+            <div><div style="font-size:.78em;font-weight:600;color:var(--orange)">Новости, форумы</div><div style="font-size:.58em;color:var(--muted)">миллиарды страниц</div></div>
+          </div>
+          <div class="train-source" style="--sc:var(--pink)">
+            <span style="font-size:1.1em">🔬</span>
+            <div><div style="font-size:.78em;font-weight:600;color:var(--pink)">Наука</div><div style="font-size:.58em;color:var(--muted)">arxiv, PubMed</div></div>
+          </div>
+          <div class="train-source" style="--sc:var(--green)">
+            <span style="font-size:1.1em">📖</span>
+            <div><div style="font-size:.78em;font-weight:600;color:var(--green)">Книги</div><div style="font-size:.58em;color:var(--muted)">миллионы</div></div>
+          </div>
+        </div>
+
+        <!-- CENTER: Canvas with particle stream + neurons -->
+        <div style="flex:1;position:relative;min-width:300px;min-height:340px">
+          <canvas id="trainCanvas" style="width:100%;height:100%;display:block"></canvas>
+          <!-- Day counter overlay -->
+          <div id="trainDay" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:.7em;color:var(--muted);background:rgba(10,10,15,.8);padding:2px 10px;border-radius:4px"></div>
+        </div>
+
+        <!-- RIGHT: Result — FFN diamond reference -->
+        <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-width:120px;flex-shrink:0;gap:8px">
+          <div style="font-size:.6em;color:var(--muted);font-family:var(--mono);text-align:center">результат</div>
+          <div id="trainResult" style="opacity:0;transition:opacity 1.5s;display:flex;flex-direction:column;align-items:center;gap:8px">
+            <div style="width:80px;height:80px;background:var(--bg2);border:2px solid rgba(34,211,238,.3);border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative">
+              <div style="font-size:2em;opacity:.8">🧠</div>
+              <div style="position:absolute;bottom:-4px;right:-4px;background:var(--green);color:#000;font-size:.5em;font-weight:700;padding:1px 4px;border-radius:3px">✓</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:.72em;font-weight:600;color:var(--cyan)">Веса готовы</div>
+              <div style="font-size:.55em;color:var(--muted)">3T параметров</div>
+            </div>
+            <div style="font-size:.52em;color:var(--dim);text-align:center;max-width:100px;line-height:1.4">
+              ← тот самый ромб<br>с прошлого экрана
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom stats bar -->
+      <div id="trainStats" style="display:flex;gap:16px;justify-content:center;margin-top:12px;opacity:0;transition:opacity 1s">
+        <div style="text-align:center">
+          <div style="font-size:1.4em;font-weight:800;color:var(--accent);font-family:var(--mono)">~10T</div>
+          <div style="font-size:.62em;color:var(--dim)">токенов</div>
+        </div>
+        <div style="font-size:1.4em;color:var(--muted);align-self:center;opacity:.2">·</div>
+        <div style="text-align:center">
+          <div style="font-size:1.4em;font-weight:800;color:var(--cyan);font-family:var(--mono)">10 000</div>
+          <div style="font-size:.62em;color:var(--dim)">GPU</div>
+        </div>
+        <div style="font-size:1.4em;color:var(--muted);align-self:center;opacity:.2">·</div>
+        <div style="text-align:center">
+          <div style="font-size:1.4em;font-weight:800;color:var(--orange);font-family:var(--mono)">~90</div>
+          <div style="font-size:.62em;color:var(--dim)">дней</div>
+        </div>
+        <div style="font-size:1.4em;color:var(--muted);align-self:center;opacity:.2">·</div>
+        <div style="text-align:center">
+          <div style="font-size:1.4em;font-weight:800;color:var(--green);font-family:var(--mono)">$100M+</div>
+          <div style="font-size:.62em;color:var(--dim)">бюджет</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Key insight -->
+    <div style="text-align:center;margin-top:14px;padding:14px 20px;border:1px dashed rgba(255,255,255,.08);border-radius:10px">
+      <div style="font-size:.95em;color:var(--text);font-weight:600">Модель не хранит текст. Она хранит <em>паттерны</em>.</div>
+      <div style="font-size:.85em;color:var(--muted);margin-top:4px">«Столица Франции» встретилась миллион раз → нейрон выучил реагировать.</div>
+    </div>
+
+    <!-- Pills -->
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center">
+      <div class="info-click pill-q" data-tooltip="Оценка для GPT-5.4 — порядка $100-200 миллионов. GPT-4 стоил ~$100M. Основные затраты: аренда GPU-кластера (тысячи NVIDIA H100/B200), электричество, зарплаты исследователей. Одна ошибка в конфигурации — $10M потеряно.">Сколько стоит обучение?</div>
+      <div class="info-click pill-q" data-tooltip="Если факта не было в обучающих данных — модель его не знает. Она может 'додумать' на основе похожих паттернов, но это будет галлюцинация. Поэтому модели врут про редкие факты — они буквально никогда их не видели.">А если факта не было в данных?</div>
+      <div class="info-click pill-q" data-tooltip="Это происходит один раз — до того, как модель стала доступна пользователям. Обучение занимает месяцы. После этого веса заморожены — модель не учится на ваших запросах (в базовом варианте). Каждый ваш запрос — это inference, не обучение.">Это происходит при каждом запросе?</div>
+    </div>
+
+  </div>
+</div></div>
+
+<!-- ─── SLIDE 10: ×60 слоёв ─── -->
+<div class="slide" data-step="9" style="align-items:flex-start"><div class="slide-content">
+  <div style="max-width:900px;margin:0 auto">
+
+    <div style="text-align:center;margin-bottom:14px">
+      <h2 style="font-size:1.5em;margin-bottom:6px">Это повторяется ×60</h2>
+      <p style="font-size:.85em;margin:0">Attention + FFN = один слой. Вектор проходит <em>все</em> слои по очереди.</p>
+    </div>
+
+    <!-- LAYER 1: detailed -->
+    <div class="layer-row" id="layerRow1" style="opacity:0;transition:opacity .8s">
+      <div class="layer-label">Слой 1</div>
+      <div class="layer-vec">
+        <div class="layer-vec-title" style="color:var(--accent)">вход</div>
+        <div class="layer-vec-row"><span class="layer-dim">география</span><span style="color:var(--accent)">0.90</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">гос.устр.</span><span style="color:var(--cyan)">0.70</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">столица</span><span style="color:var(--green)">0.70</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">вопрос</span><span style="color:var(--orange)">0.30</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">европа</span><span style="color:var(--pink)">0.90</span></div>
+      </div>
+      <div class="layer-gate" id="att1Gate" style="--gc:var(--orange);opacity:.3;transition:opacity .4s">
+        <div class="layer-gate-label" style="color:var(--orange)">Attention</div>
+        <div class="layer-gate-mini" id="att1Mini"></div>
+        <div style="font-size:.5em;color:var(--muted);text-align:center">контекст</div>
+      </div>
+      <div class="layer-arrow" id="arr1a" style="opacity:0;transition:opacity .3s">→</div>
+      <div class="layer-gate" id="ffn1Gate" style="--gc:var(--cyan);opacity:.3;transition:opacity .4s">
+        <div class="layer-gate-label" style="color:var(--cyan)">FFN</div>
+        <div class="layer-gate-mini" id="ffn1Mini"></div>
+        <div style="font-size:.5em;color:var(--muted);text-align:center">факты</div>
+      </div>
+      <div class="layer-arrow" id="arr1b" style="opacity:0;transition:opacity .3s">→</div>
+      <div class="layer-vec" id="out1" style="opacity:0;transition:opacity .6s">
+        <div class="layer-vec-title" style="color:var(--green)">выход</div>
+        <div class="layer-vec-row"><span class="layer-dim">география</span><span style="color:var(--accent)" class="anim-val" data-from="0.90" data-to="0.88">0.90</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">гос.устр.</span><span style="color:var(--cyan)" class="anim-val" data-from="0.70" data-to="0.75">0.70</span><span class="layer-diff green" style="opacity:0" class="anim-diff">▴</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">столица</span><span style="color:var(--green)" class="anim-val" data-from="0.70" data-to="0.82">0.70</span><span class="layer-diff green" style="opacity:0" class="anim-diff">▴</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">вопрос</span><span style="color:var(--orange)" class="anim-val" data-from="0.30" data-to="0.28">0.30</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">европа</span><span style="color:var(--pink)" class="anim-val" data-from="0.90" data-to="0.88">0.90</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+      </div>
+    </div>
+
+    <!-- LAYER 2: detailed -->
+    <div class="layer-row" id="layerRow2" style="opacity:0;transition:opacity .8s">
+      <div class="layer-label">Слой 2</div>
+      <div class="layer-vec">
+        <div class="layer-vec-title" style="color:var(--accent)">вход</div>
+        <div class="layer-vec-row"><span class="layer-dim">география</span><span style="color:var(--accent)">0.88</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">гос.устр.</span><span style="color:var(--cyan)">0.75</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">столица</span><span style="color:var(--green)">0.82</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">вопрос</span><span style="color:var(--orange)">0.28</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">европа</span><span style="color:var(--pink)">0.88</span></div>
+      </div>
+      <div class="layer-gate" id="att2Gate" style="--gc:var(--orange);opacity:.3;transition:opacity .4s">
+        <div class="layer-gate-label" style="color:var(--orange)">Attention</div>
+        <div class="layer-gate-mini" id="att2Mini"></div>
+        <div style="font-size:.5em;color:var(--muted);text-align:center">контекст</div>
+      </div>
+      <div class="layer-arrow" id="arr2a" style="opacity:0;transition:opacity .3s">→</div>
+      <div class="layer-gate" id="ffn2Gate" style="--gc:var(--cyan);opacity:.3;transition:opacity .4s">
+        <div class="layer-gate-label" style="color:var(--cyan)">FFN</div>
+        <div class="layer-gate-mini" id="ffn2Mini"></div>
+        <div style="font-size:.5em;color:var(--muted);text-align:center">факты</div>
+      </div>
+      <div class="layer-arrow" id="arr2b" style="opacity:0;transition:opacity .3s">→</div>
+      <div class="layer-vec" id="out2" style="opacity:0;transition:opacity .6s">
+        <div class="layer-vec-title" style="color:var(--green)">выход</div>
+        <div class="layer-vec-row"><span class="layer-dim">география</span><span style="color:var(--accent)" class="anim-val" data-from="0.88" data-to="0.85">0.88</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">гос.устр.</span><span style="color:var(--cyan)" class="anim-val" data-from="0.75" data-to="0.80">0.75</span><span class="layer-diff green" style="opacity:0" class="anim-diff">▴</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">столица</span><span style="color:var(--green)" class="anim-val" data-from="0.82" data-to="0.92">0.82</span><span class="layer-diff green" style="opacity:0" class="anim-diff">▴</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">вопрос</span><span style="color:var(--orange)" class="anim-val" data-from="0.28" data-to="0.25">0.28</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">европа</span><span style="color:var(--pink)" class="anim-val" data-from="0.88" data-to="0.85">0.88</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+      </div>
+    </div>
+
+    <!-- LAYERS 3-59: crawling bar + counter -->
+    <div id="layerMiddle" style="opacity:0;transition:opacity .8s">
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:10px;margin:6px 0">
+        <div style="font-size:.72em;color:var(--muted);font-family:var(--mono);white-space:nowrap">слои 3 – 59</div>
+        <div style="flex:1;position:relative;height:28px;overflow:hidden">
+          <!-- Bar container: 57 bars, initially 0 height -->
+          <div id="midBars" style="display:flex;gap:2px;align-items:flex-end;height:100%"></div>
+        </div>
+        <div style="font-family:var(--mono);font-size:.85em;font-weight:700;color:var(--accent);white-space:nowrap;min-width:32px;text-align:right" id="midCounter">3</div>
+      </div>
+      <div style="text-align:center;font-size:.7em;color:var(--dim);margin:4px 0 6px">каждый слой — та же пара Attention + FFN. Числа сдвигаются ещё и ещё.</div>
+    </div>
+
+    <!-- LAYER 60: detailed -->
+    <div class="layer-row" id="layerRow60" style="opacity:0;transition:opacity .8s">
+      <div class="layer-label" style="color:var(--green)">Слой 60</div>
+      <div class="layer-vec">
+        <div class="layer-vec-title" style="color:var(--accent)">вход</div>
+        <div class="layer-vec-row"><span class="layer-dim">география</span><span style="color:var(--accent)">0.42</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">гос.устр.</span><span style="color:var(--cyan)">0.38</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">столица</span><span style="color:var(--green);font-weight:700">0.95</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">вопрос</span><span style="color:var(--orange);opacity:.4">0.05</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">европа</span><span style="color:var(--pink)">0.72</span></div>
+      </div>
+      <div class="layer-gate" id="att60Gate" style="--gc:var(--orange);opacity:.3;transition:opacity .4s">
+        <div class="layer-gate-label" style="color:var(--orange)">Attention</div>
+        <div class="layer-gate-mini" id="att60Mini"></div>
+        <div style="font-size:.5em;color:var(--muted);text-align:center">финал</div>
+      </div>
+      <div class="layer-arrow" id="arr60a" style="opacity:0;transition:opacity .3s">→</div>
+      <div class="layer-gate" id="ffn60Gate" style="--gc:var(--cyan);opacity:.3;transition:opacity .4s">
+        <div class="layer-gate-label" style="color:var(--cyan)">FFN</div>
+        <div class="layer-gate-mini" id="ffn60Mini"></div>
+        <div style="font-size:.5em;color:var(--muted);text-align:center">факты</div>
+      </div>
+      <div class="layer-arrow" id="arr60b" style="opacity:0;transition:opacity .3s">→</div>
+      <!-- OUTPUT VECTOR — big and glowing -->
+      <div class="layer-vec" id="out60" style="opacity:0;transition:opacity .6s;background:rgba(52,211,153,.06);border-color:rgba(52,211,153,.3);box-shadow:0 0 20px rgba(52,211,153,.1);padding:8px 12px">
+        <div class="layer-vec-title" style="color:var(--green);font-size:.8em">ВЫХОД</div>
+        <div class="layer-vec-row"><span class="layer-dim">география</span><span style="color:var(--accent)" class="anim-val" data-from="0.42" data-to="0.40">0.42</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">гос.устр.</span><span style="color:var(--cyan)" class="anim-val" data-from="0.38" data-to="0.35">0.38</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+        <div class="layer-vec-row" style="font-weight:700"><span class="layer-dim" style="color:var(--green)">столица</span><span style="color:var(--green);font-size:1.1em" class="anim-val" data-from="0.95" data-to="0.97">0.95</span><span class="layer-diff green" style="font-size:.9em;opacity:0" class="anim-diff">▴▴</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">вопрос</span><span style="color:var(--orange)" class="anim-val" data-from="0.05" data-to="0.03">0.05</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+        <div class="layer-vec-row"><span class="layer-dim">европа</span><span style="color:var(--pink)" class="anim-val" data-from="0.72" data-to="0.70">0.72</span><span class="layer-diff red" style="opacity:0" class="anim-diff">▾</span></div>
+      </div>
+    </div>
+
+    <!-- Key insight -->
+    <div id="layerInsight" style="opacity:0;transition:opacity .8s;text-align:center;margin-top:14px;padding:14px 20px;border:1px dashed rgba(255,255,255,.08);border-radius:10px">
+      <div style="font-size:.95em;color:var(--text);font-weight:600">Те же 5 измерений. Но после 60 слоёв — <span style="color:var(--green)">столица</span> выросла с <span style="color:var(--dim)">0.70</span> до <span style="color:var(--green)">0.97</span>, а <span style="color:var(--orange)">вопрос</span> упал до <span style="color:var(--dim)">0.03</span>.</div>
+      <div style="font-size:.85em;color:var(--muted);margin-top:4px">Вектор сконцентрировался. Теперь при декодировании он ведёт к токену «Пар».</div>
+    </div>
+
+    <!-- Model comparison + pills -->
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:14px;flex-wrap:wrap">
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:.6em;color:var(--dim)">GPT-2</span><span style="font-family:var(--mono);font-size:.68em;color:var(--muted)">12</span>
+      </div>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:.6em;color:var(--dim)">GPT-3</span><span style="font-family:var(--mono);font-size:.68em;color:var(--muted)">96</span>
+      </div>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:.6em;color:var(--dim)">GPT-4</span><span style="font-family:var(--mono);font-size:.68em;color:var(--muted)">~120</span>
+      </div>
+      <div style="background:rgba(99,102,241,.08);border:1px solid rgba(99,102,241,.2);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:.6em;color:var(--accent)">GPT-5.4</span><span style="font-family:var(--mono);font-size:.68em;color:var(--accent);font-weight:700">~60</span><span style="font-size:.5em;color:var(--muted)">MoE</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;justify-content:center">
+      <div class="info-click pill-q" data-tooltip="Больше слоёв = больше шагов обработки. GPT-2 (12 слоёв) часто ошибается в сложных вопросах. GPT-4 (120 слоёв) проходит 10× больше этапов уточнения — вот почему он 'умнее'.">Зачем так много?</div>
+      <div class="info-click pill-q" data-tooltip="GPT-5.4 использует Mixture of Experts: 256 экспертных FFN вместо одного. На каждом слое роутер выбирает 8 из 256. Слоёв меньше (60), но каждый мощнее.">Почему у GPT-5.4 меньше?</div>
+      <div class="info-click pill-q" data-tooltip="Нет. Все 7 токенов проходят через каждый слой параллельно. Здесь мы показываем один вектор для наглядности, но все 7 едут одновременно.">А остальные токены?</div>
+    </div>
+
+  </div>
+</div></div>
+
+<!-- ─── SLIDE 11: GPU vs CPU ─── -->
+<div class="slide" data-step="10" style="align-items:flex-start"><div class="slide-content">
+  <div style="max-width:850px;margin:0 auto">
+
+    <div style="text-align:center;margin-bottom:10px">
+      <h2 style="font-size:1.5em;margin-bottom:6px">Почему GPU?</h2>
+    </div>
+
+    <!-- Problem statement -->
+    <div id="gpuProblem" style="opacity:0;transition:opacity .8s;text-align:center;margin-bottom:16px;padding:12px 20px;background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:10px">
+      <div style="font-size:.85em;color:var(--text)">Один токен ответа = <strong>60 слоёв × 16 384 нейрона</strong> = около <span style="color:var(--cyan);font-weight:700">1 000 000</span> операций.</div>
+      <div style="font-size:.78em;color:var(--muted);margin-top:4px">Ответ из 100 слов — повторить ~150 раз. Итого: <span style="color:var(--cyan)">150 000 000</span> умножений.</div>
+    </div>
+
+    <!-- Two chips side by side -->
+    <div id="gpuChips" style="opacity:0;transition:opacity .8s;display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+      <!-- CPU chip -->
+      <div style="text-align:center">
+        <div style="font-size:.8em;font-weight:700;color:var(--red);margin-bottom:6px">CPU</div>
+        <!-- Chip schematic -->
+        <div style="display:inline-block;background:var(--bg2);border:2px solid rgba(248,113,113,.2);border-radius:8px;padding:16px 20px;position:relative;margin-bottom:8px">
+          <!-- Pins -->
+          <div style="position:absolute;top:-4px;left:20%;right:20%;display:flex;justify-content:space-around">
+            <div style="width:3px;height:6px;background:rgba(248,113,113,.15);border-radius:1px"></div>
+            <div style="width:3px;height:6px;background:rgba(248,113,113,.15);border-radius:1px"></div>
+            <div style="width:3px;height:6px;background:rgba(248,113,113,.15);border-radius:1px"></div>
+          </div>
+          <div style="position:absolute;bottom:-4px;left:20%;right:20%;display:flex;justify-content:space-around">
+            <div style="width:3px;height:6px;background:rgba(248,113,113,.15);border-radius:1px"></div>
+            <div style="width:3px;height:6px;background:rgba(248,113,113,.15);border-radius:1px"></div>
+            <div style="width:3px;height:6px;background:rgba(248,113,113,.15);border-radius:1px"></div>
+          </div>
+          <!-- 4 big cores -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="chip-core" id="cpuC0"></div>
+            <div class="chip-core" id="cpuC1"></div>
+            <div class="chip-core" id="cpuC2"></div>
+            <div class="chip-core" id="cpuC3"></div>
+          </div>
+        </div>
+        <div style="font-size:.6em;color:var(--dim)">4 мощных ядра</div>
+        <div style="font-family:var(--mono);font-size:.85em;color:var(--red);font-weight:700;margin-top:6px" id="cpuCounter">—</div>
+      </div>
+
+      <!-- GPU card -->
+      <div style="text-align:center">
+        <div style="font-size:.8em;font-weight:700;color:var(--green);margin-bottom:6px">GPU</div>
+        <!-- Card schematic — wider, bigger -->
+        <div style="display:inline-block;background:var(--bg2);border:2px solid rgba(52,211,153,.2);border-radius:8px;padding:10px 12px;position:relative;margin-bottom:8px">
+          <!-- Pins -->
+          <div style="position:absolute;bottom:-4px;left:10%;right:10%;display:flex;justify-content:space-around">
+            <div style="width:2px;height:5px;background:rgba(52,211,153,.12);border-radius:1px"></div>
+            <div style="width:2px;height:5px;background:rgba(52,211,153,.12);border-radius:1px"></div>
+            <div style="width:2px;height:5px;background:rgba(52,211,153,.12);border-radius:1px"></div>
+            <div style="width:2px;height:5px;background:rgba(52,211,153,.12);border-radius:1px"></div>
+            <div style="width:2px;height:5px;background:rgba(52,211,153,.12);border-radius:1px"></div>
+            <div style="width:2px;height:5px;background:rgba(52,211,153,.12);border-radius:1px"></div>
+            <div style="width:2px;height:5px;background:rgba(52,211,153,.12);border-radius:1px"></div>
+          </div>
+          <!-- Grid of tiny cores — slightly chaotic -->
+          <div id="gpuGrid" style="display:flex;flex-wrap:wrap;gap:1px;justify-content:center;max-width:400px"></div>
+        </div>
+        <div style="font-size:.6em;color:var(--dim)">16 000 простых ядер</div>
+        <div style="font-family:var(--mono);font-size:.85em;color:var(--green);font-weight:700;margin-top:6px" id="gpuCounter">—</div>
+      </div>
+    </div>
+
+    <!-- Key insight -->
+    <div id="gpuInsight" style="opacity:0;transition:opacity .8s;text-align:center;margin-top:16px;padding:14px 20px;border:1px dashed rgba(255,255,255,.08);border-radius:10px">
+      <div style="font-size:.95em;color:var(--text);font-weight:600">Вот почему одна NVIDIA H100 стоит $30 000.</div>
+      <div style="font-size:.85em;color:var(--muted);margin-top:4px">16 896 ядер, 80 GB памяти. Для GPT-5.4 нужно ~375 таких карт — кластер на $10M+.</div>
+    </div>
+
+    <!-- Pills -->
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center">
+      <div class="info-click pill-q" data-tooltip="CPU — как 4 профессора: каждый может решать сложные разные задачи (браузер, ОС, файлы). GPU — как 16 000 школьников: каждый умеет только умножить два числа. Нейросеть — это миллионы одинаковых умножений. Профессора не нужны, нужна армия.">CPU vs GPU подробнее</div>
+      <div class="info-click pill-q" data-tooltip="Именно поэтому NVIDIA стоит $3 триллиона. Они делают единственный чип, который умеет быстро считать нейросети. Конкуренты (AMD, Google TPU, свои чипы Amazon/Microsoft) пытаются догнать, но NVIDIA — монополист с 10-летним отрывом в софте (CUDA).">Почему NVIDIA стоит триллионы?</div>
+    </div>
+
+  </div>
+</div></div>
+
+<!-- ─── SLIDE 12: Генерация ─── -->
+<div class="slide" data-step="11" style="align-items:flex-start"><div class="slide-content">
+  <div style="max-width:800px;margin:0 auto">
+
+    <div style="text-align:center;margin-bottom:16px">
+      <h2 style="font-size:1.5em;margin-bottom:6px">Генерация ответа</h2>
+      <p style="font-size:.85em;margin:0">Модель генерирует по одному токену за раз. Каждый — полный прогон.</p>
+    </div>
+
+    <!-- ═══ PASS 1 ═══ -->
+    <div id="genPass1" style="opacity:0;transition:opacity .8s">
+      <div style="font-size:.72em;color:var(--accent);font-family:var(--mono);font-weight:700;margin-bottom:6px">Прогон 1</div>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px">
+
+        <!-- Input tokens — last one pulses -->
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+          <span class="token-chip" style="--tc:var(--pink);font-size:.72em;padding:4px 8px">Как</span>
+          <span class="token-chip" style="--tc:var(--orange);font-size:.72em;padding:4px 8px">ая</span>
+          <span class="token-chip" style="--tc:var(--cyan);font-size:.72em;padding:4px 8px">стол</span>
+          <span class="token-chip" style="--tc:var(--green);font-size:.72em;padding:4px 8px">ица</span>
+          <span class="token-chip" style="--tc:var(--accent);font-size:.72em;padding:4px 8px">Франц</span>
+          <span class="token-chip" style="--tc:var(--yellow);font-size:.72em;padding:4px 8px">ии</span>
+          <span class="token-chip gen-pulse" id="genLastTok1" style="--tc:var(--red);font-size:.72em;padding:4px 8px">?</span>
+          <span style="font-size:.55em;color:var(--dim);margin-left:4px">← последний токен определяет ответ</span>
+        </div>
+
+        <!-- Spinner: 60 layers processing -->
+        <div id="genSpin1" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 0">
+          <div class="gen-spinner"></div>
+          <span style="font-size:.78em;color:var(--muted)">60 слоёв Attention + FFN...</span>
+        </div>
+
+        <!-- After spinner: decode → probs → token (one row) -->
+        <div id="genDecode1" style="opacity:0;transition:opacity .6s;display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;padding:6px 0">
+          <span class="pill-q" id="genTablePill" onclick="document.getElementById('genEmbTable').style.display=document.getElementById('genEmbTable').style.display==='none'?'block':'none'" style="border-color:rgba(99,102,241,.3);color:var(--accent);cursor:pointer">таблица эмбеддингов ↔ ▾</span>
+          <span style="color:var(--muted);font-size:.7em">→</span>
+          <!-- Probability bars (compact) -->
+          <div id="genProbs1" style="opacity:0;transition:opacity .5s;min-width:160px">
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+              <span style="font-family:var(--mono);font-size:.75em;font-weight:700;color:var(--green);min-width:28px">Пар</span>
+              <div style="width:120px;height:16px;background:var(--bg);border-radius:3px;overflow:hidden"><div id="genBar1" style="height:100%;width:0%;background:var(--green);border-radius:3px;transition:width 1s ease-out"></div></div>
+              <span style="font-family:var(--mono);font-size:.65em;color:var(--green);font-weight:700">92%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+              <span style="font-family:var(--mono);font-size:.75em;color:var(--dim);min-width:28px">Лон</span>
+              <div style="width:120px;height:10px;background:var(--bg);border-radius:3px;overflow:hidden"><div id="genBar2" style="height:100%;width:0%;background:var(--muted);opacity:.4;border-radius:3px;transition:width 1s ease-out"></div></div>
+              <span style="font-family:var(--mono);font-size:.65em;color:var(--muted)">3%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="font-family:var(--mono);font-size:.75em;color:var(--dim);min-width:28px">Бер</span>
+              <div style="width:120px;height:10px;background:var(--bg);border-radius:3px;overflow:hidden"><div id="genBar3" style="height:100%;width:0%;background:var(--muted);opacity:.3;border-radius:3px;transition:width 1s ease-out"></div></div>
+              <span style="font-family:var(--mono);font-size:.65em;color:var(--muted)">2%</span>
+            </div>
+          </div>
+          <span style="color:var(--muted);font-size:.7em">→</span>
+          <div id="genResult1" style="opacity:0;transition:opacity .5s;background:rgba(52,211,153,.12);border:2px solid var(--green);border-radius:8px;padding:8px 18px;text-align:center;flex-shrink:0">
+            <div style="font-family:var(--mono);font-size:1.3em;font-weight:800;color:var(--green)">Пар</div>
+          </div>
+        </div>
+
+        <!-- Expandable embedding table (reversed lookup) -->
+        <div id="genEmbTable" style="display:none;margin-top:8px;background:var(--bg);border:1px solid rgba(99,102,241,.15);border-radius:8px;padding:10px 12px;overflow-x:auto">
+          <div style="font-size:.68em;color:var(--accent);font-weight:600;margin-bottom:6px">Декодирование: вектор → ищем ближайшую строку в таблице</div>
+          <div style="font-size:.6em;color:var(--dim);margin-bottom:8px">На экране 6 мы кодировали: ID → строка таблицы → вектор. Теперь наоборот: берём вектор после 60 слоёв и сравниваем с каждой из ~100K строк.</div>
+          <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.58em">
+            <thead>
+              <tr style="color:var(--muted)">
+                <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">ID</td>
+                <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">токен</td>
+                <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">столица</td>
+                <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">европа</td>
+                <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">...</td>
+                <td style="padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.06)">совпадение</td>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="background:rgba(52,211,153,.08);color:var(--green);font-weight:600">
+                <td style="padding:3px 6px">8837</td>
+                <td style="color:var(--text)">Пар</td>
+                <td>0.96</td>
+                <td>0.71</td>
+                <td>...</td>
+                <td style="color:var(--green);font-weight:700">92%</td>
+              </tr>
+              <tr style="color:var(--muted);opacity:.4">
+                <td style="padding:3px 6px">5012</td>
+                <td>Лон</td>
+                <td>0.55</td>
+                <td>0.82</td>
+                <td>...</td>
+                <td>3%</td>
+              </tr>
+              <tr style="color:var(--muted);opacity:.4">
+                <td style="padding:3px 6px">3891</td>
+                <td>Бер</td>
+                <td>0.52</td>
+                <td>0.80</td>
+                <td>...</td>
+                <td>2%</td>
+              </tr>
+              <tr style="color:var(--muted);opacity:.25">
+                <td style="padding:3px 6px" colspan="6">...ещё 99 997 строк...</td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="font-size:.55em;color:var(--dim);margin-top:6px;text-align:center">↑ вектор «?» ближе всего к строке «Пар» — она и побеждает</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PASS 2 ═══ -->
+    <div id="genPass2" style="opacity:0;transition:opacity .8s;margin-top:10px">
+      <div style="font-size:.72em;color:var(--accent);font-family:var(--mono);font-weight:700;margin-bottom:6px">Прогон 2 — добавляем «Пар» и запускаем заново</div>
+      <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px">
+
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:12px">
+          <span class="token-chip" style="--tc:var(--pink);font-size:.65em;padding:2px 6px">Как</span>
+          <span class="token-chip" style="--tc:var(--orange);font-size:.65em;padding:2px 6px">ая</span>
+          <span class="token-chip" style="--tc:var(--cyan);font-size:.65em;padding:2px 6px">стол</span>
+          <span class="token-chip" style="--tc:var(--green);font-size:.65em;padding:2px 6px">ица</span>
+          <span class="token-chip" style="--tc:var(--accent);font-size:.65em;padding:2px 6px">Франц</span>
+          <span class="token-chip" style="--tc:var(--yellow);font-size:.65em;padding:2px 6px">ии</span>
+          <span class="token-chip" style="--tc:var(--red);font-size:.65em;padding:2px 6px">?</span>
+          <span class="token-chip gen-pulse" id="genLastTok2" style="--tc:var(--green);font-size:.65em;padding:2px 6px;border-width:2px">Пар</span>
+          <span style="font-size:.55em;color:var(--dim)">← теперь последний</span>
+        </div>
+
+        <div id="genSpin2" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;justify-content:center;gap:10px;padding:8px 0">
+          <div class="gen-spinner"></div>
+          <span style="font-size:.78em;color:var(--muted)">60 слоёв... таблица эмбеддингов...</span>
+        </div>
+
+        <div id="genResult2" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;gap:10px;justify-content:center;padding:6px 0">
+          <span style="font-family:var(--mono);font-size:.78em;color:var(--dim)">иж 96%</span>
+          <span style="color:var(--muted)">→</span>
+          <span style="font-family:var(--mono);font-size:1.3em;font-weight:800;color:var(--green);background:rgba(52,211,153,.12);padding:6px 18px;border-radius:8px;border:2px solid var(--green)">иж</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ RESULT ═══ -->
+    <div id="genFinal" style="opacity:0;transition:opacity .8s;margin-top:14px;text-align:center;background:var(--bg2);border:1px solid rgba(52,211,153,.2);border-radius:10px;padding:20px">
+      <div style="font-size:.78em;color:var(--muted);margin-bottom:8px">Склеиваем токены:</div>
+      <div>
+        <span style="font-family:var(--mono);font-size:2.4em;font-weight:800;color:var(--green)">Пар</span><span style="font-family:var(--mono);font-size:2.4em;font-weight:800;color:var(--green)">иж</span>
+      </div>
+      <div style="font-size:1.05em;color:var(--text);margin-top:6px">Столица Франции — <strong>Париж</strong>.</div>
+    </div>
+
+    <!-- Key insight -->
+    <div id="genInsight" style="opacity:0;transition:opacity .8s;text-align:center;margin-top:12px;padding:14px 20px;border:1px dashed rgba(255,255,255,.08);border-radius:10px">
+      <div style="font-size:.95em;color:var(--text);font-weight:600">Каждый токен ответа = полный прогон через все 60 слоёв.</div>
+      <div style="font-size:.85em;color:var(--muted);margin-top:4px">Ответ из 500 слов ≈ 700 токенов × 60 слоёв = 42 000 проходов Attention + FFN.</div>
+    </div>
+
+    <!-- Pills -->
+    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center">
+      <div class="info-click pill-q" data-tooltip="Temperature контролирует 'креативность'. При temperature=0 модель всегда выбирает самый вероятный токен. При >1 — редкие варианты получают шанс. Вот почему один и тот же промпт даёт разные ответы.">Что такое temperature?</div>
+      <div class="info-click pill-q" data-tooltip="Top-p (nucleus sampling): рассматриваем только самые вероятные токены, покрывающие 90% вероятности. Остальные отбрасываем.">Что такое top-p?</div>
+      <div class="info-click pill-q" data-tooltip="Модель генерирует специальный токен [EOS] (end of sequence). Когда он выбран — генерация останавливается. Также можно задать максимальную длину.">Когда модель останавливается?</div>
+    </div>
+
+  </div>
+</div></div>
+
+<!-- ─── SLIDE 13: Итого — реплей пайплайна ─── -->
+<div class="slide" data-step="12"><div class="slide-content">
+  <div style="max-width:700px;margin:0 auto">
+
+    <div style="text-align:center;margin-bottom:20px">
+      <h2 style="font-size:1.5em;margin-bottom:6px">Полная картина</h2>
+      <p style="font-size:.85em;margin:0">Весь путь — от вопроса до ответа.</p>
+    </div>
+
+    <!-- Stage: one area, content swaps -->
+    <div style="background:var(--bg2);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:28px 24px;min-height:220px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden">
+      <!-- Step label -->
+      <div id="replayLabel" style="position:absolute;top:10px;left:14px;font-family:var(--mono);font-size:.8em;font-weight:600;color:var(--text)"></div>
+
+      <!-- Scene 1: Chat input -->
+      <div class="replay-scene" id="rScene0" style="text-align:center">
+        <div style="background:var(--bg);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:16px 20px;display:inline-flex;align-items:center;gap:10px;max-width:400px">
+          <div style="font-size:1.2em;font-weight:600;color:var(--text);font-family:var(--mono)" id="replayTyping"></div>
+          <div style="width:32px;height:32px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;flex-shrink:0">↑</div>
+        </div>
+      </div>
+
+      <!-- Scene 2: API flight + JSON раскрывается -->
+      <div class="replay-scene" id="rScene1" style="display:none;flex-direction:column;align-items:center;gap:14px">
+        <!-- Flight animation -->
+        <div style="display:flex;align-items:center;gap:16px">
+          <span style="font-size:1.2em">💻</span>
+          <span style="font-size:.7em;color:var(--dim)">вы</span>
+          <div style="width:200px;position:relative;height:3px;background:var(--bg3);border-radius:2px">
+            <div style="position:absolute;width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--glow);top:-5px;animation:flyRight 2s ease-in-out infinite"></div>
+          </div>
+          <span style="font-size:.7em;color:var(--accent)">GPU-кластер</span>
+          <span style="font-size:1.2em">🏢</span>
+        </div>
+        <!-- JSON that expands into system + user -->
+        <div style="max-width:420px;width:100%">
+          <div style="font-family:var(--mono);font-size:.7em;color:var(--muted);margin-bottom:6px">
+            <span style="color:var(--green);font-weight:700;background:rgba(52,211,153,.12);padding:2px 8px;border-radius:4px">POST</span>
+            <span style="margin-left:4px">/v1/chat/completions</span>
+          </div>
+          <!-- System block -->
+          <div id="rJsonSys" style="opacity:0;transition:opacity .6s;background:rgba(244,114,182,.06);border:1px solid rgba(244,114,182,.12);border-radius:6px;padding:8px 12px;margin-bottom:4px">
+            <span class="tag t-pink" style="font-size:.55em">system</span>
+            <span style="font-size:.6em;color:var(--dim);margin-left:6px">~2000 слов: идентичность, инструменты, безопасность</span>
+          </div>
+          <!-- User block -->
+          <div id="rJsonUser" style="opacity:0;transition:opacity .6s;background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.15);border-radius:6px;padding:8px 12px">
+            <span class="tag t-accent" style="font-size:.55em">user</span>
+            <span style="font-size:.75em;color:var(--text);font-family:var(--mono);margin-left:6px">"Какая столица Франции?"</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scene 3: Tokens -->
+      <div class="replay-scene" id="rScene2" style="text-align:center;display:none">
+        <div style="display:inline-flex;gap:6px;flex-wrap:wrap;justify-content:center">
+          <span class="token-chip" style="--tc:var(--pink);font-size:.85em;padding:5px 10px">Как</span>
+          <span class="token-chip" style="--tc:var(--orange);font-size:.85em;padding:5px 10px">ая</span>
+          <span class="token-chip" style="--tc:var(--cyan);font-size:.85em;padding:5px 10px">стол</span>
+          <span class="token-chip" style="--tc:var(--green);font-size:.85em;padding:5px 10px">ица</span>
+          <span class="token-chip" style="--tc:var(--accent);font-size:.85em;padding:5px 10px">Франц</span>
+          <span class="token-chip" style="--tc:var(--yellow);font-size:.85em;padding:5px 10px">ии</span>
+          <span class="token-chip" style="--tc:var(--red);font-size:.85em;padding:5px 10px">?</span>
+        </div>
+        <div style="margin-top:8px;font-size:.7em;color:var(--muted)">7 токенов</div>
+      </div>
+
+      <!-- Scene 4: Embeddings table — rows appear one by one -->
+      <div class="replay-scene" id="rScene3" style="display:none">
+        <table style="border-collapse:collapse;font-family:var(--mono);font-size:.7em;margin:0 auto" id="replayEmbTable">
+          <thead>
+            <tr style="color:var(--muted)">
+              <td style="padding:4px 10px;border-bottom:1px solid rgba(255,255,255,.06)">токен</td>
+              <td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06)">ID</td>
+              <td style="padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.06)">вектор [4096]</td>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="emb-row" style="opacity:0;transition:opacity .4s"><td style="padding:3px 10px;color:var(--pink)">Как</td><td style="padding:3px 8px;color:var(--dim)">15234</td><td style="padding:3px 8px;color:var(--dim);font-size:.85em">[0.01, 0.88, 0.01, ···]</td></tr>
+            <tr class="emb-row" style="opacity:0;transition:opacity .4s"><td style="padding:3px 10px;color:var(--orange)">ая</td><td style="padding:3px 8px;color:var(--dim)">892</td><td style="padding:3px 8px;color:var(--dim);font-size:.85em">[0.12, 0.60, -0.03, ···]</td></tr>
+            <tr class="emb-row" style="opacity:0;transition:opacity .4s"><td style="padding:3px 10px;color:var(--cyan)">стол</td><td style="padding:3px 8px;color:var(--dim)">44521</td><td style="padding:3px 8px;color:var(--dim);font-size:.85em">[0.15, -0.03, 0.72, ···]</td></tr>
+            <tr class="emb-row" style="opacity:0;transition:opacity .4s"><td style="padding:3px 10px;color:var(--green)">ица</td><td style="padding:3px 8px;color:var(--dim)">1847</td><td style="padding:3px 8px;color:var(--dim);font-size:.85em">[0.05, -0.01, 0.80, ···]</td></tr>
+            <tr class="emb-row" style="opacity:0;transition:opacity .4s"><td style="padding:3px 10px;color:var(--accent)">Франц</td><td style="padding:3px 8px;color:var(--dim)">28934</td><td style="padding:3px 8px;color:var(--dim);font-size:.85em">[0.92, 0.02, 0.85, ···]</td></tr>
+            <tr class="emb-row" style="opacity:0;transition:opacity .4s"><td style="padding:3px 10px;color:var(--yellow)">ии</td><td style="padding:3px 8px;color:var(--dim)">2910</td><td style="padding:3px 8px;color:var(--dim);font-size:.85em">[0.03, 0.15, 0.10, ···]</td></tr>
+            <tr class="emb-row" style="opacity:0;transition:opacity .4s"><td style="padding:3px 10px;color:var(--red)">?</td><td style="padding:3px 8px;color:var(--dim)">30</td><td style="padding:3px 8px;color:var(--dim);font-size:.85em">[0.95, 0.01, -0.02, ···]</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Scene 5: Vector → Attention → FFN → ×60 -->
+      <div class="replay-scene" id="rScene4" style="display:none;flex-direction:column;align-items:center;gap:10px">
+        <!-- Horizontal: vector → att → ffn → vector -->
+        <div style="display:flex;align-items:center;gap:8px">
+          <!-- Input vector -->
+          <div style="background:var(--bg);border:1px solid rgba(99,102,241,.2);border-radius:6px;padding:5px 8px;font-family:var(--mono);font-size:.55em;min-width:70px">
+            <div style="color:var(--accent);font-weight:600;text-align:center;margin-bottom:2px">вектор</div>
+            <div id="rVecIn0" style="color:var(--dim);transition:color .4s">столица <span style="color:var(--green)">0.70</span></div>
+            <div id="rVecIn1" style="color:var(--dim);transition:color .4s">вопрос <span style="color:var(--orange)">0.30</span></div>
+            <div id="rVecIn2" style="color:var(--dim);transition:color .4s">европа <span style="color:var(--pink)">0.90</span></div>
+          </div>
+          <span style="color:var(--muted);font-size:.7em">→</span>
+          <!-- Attention block -->
+          <div id="rAttBlock" style="background:rgba(251,146,60,.06);border:1px solid rgba(251,146,60,.12);border-radius:8px;padding:10px 14px;text-align:center;transition:all .4s">
+            <div style="font-size:.75em;font-weight:700;color:var(--orange)">Attention</div>
+            <div style="font-size:.55em;color:var(--dim);margin-top:2px">контекст</div>
+          </div>
+          <span style="color:var(--muted);font-size:.7em">→</span>
+          <!-- FFN block -->
+          <div id="rFfnBlock" style="background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.12);border-radius:8px;padding:10px 14px;text-align:center;transition:all .4s">
+            <div style="font-size:.75em;font-weight:700;color:var(--cyan)">FFN</div>
+            <div style="font-size:.55em;color:var(--dim);margin-top:2px">факты</div>
+          </div>
+          <span style="color:var(--muted);font-size:.7em">→</span>
+          <!-- Output vector -->
+          <div style="background:var(--bg);border:1px solid rgba(52,211,153,.2);border-radius:6px;padding:5px 8px;font-family:var(--mono);font-size:.55em;min-width:70px">
+            <div style="color:var(--green);font-weight:600;text-align:center;margin-bottom:2px">выход</div>
+            <div id="rVecOut0" style="color:var(--dim);transition:color .4s">столица <span style="color:var(--dim)">—</span></div>
+            <div id="rVecOut1" style="color:var(--dim);transition:color .4s">вопрос <span style="color:var(--dim)">—</span></div>
+            <div id="rVecOut2" style="color:var(--dim);transition:color .4s">европа <span style="color:var(--dim)">—</span></div>
+          </div>
+        </div>
+        <!-- Spinner + layer counter -->
+        <div id="rLayerSpin" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;gap:8px">
+          <div class="gen-spinner"></div>
+          <span style="font-family:var(--mono);font-size:.8em;font-weight:700;color:var(--accent)" id="replayLayerTick">×1</span>
+          <span style="font-size:.7em;color:var(--muted)">слоёв</span>
+        </div>
+      </div>
+
+      <!-- Scene 6: Generation replay — tokens + spinner + Пар + иж = Париж -->
+      <div class="replay-scene" id="rScene5" style="display:none;flex-direction:column;align-items:center;gap:12px">
+        <!-- Token row -->
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center" id="rGenTokens">
+          <span class="token-chip" style="--tc:var(--pink);font-size:.72em;padding:3px 8px">Как</span>
+          <span class="token-chip" style="--tc:var(--orange);font-size:.72em;padding:3px 8px">ая</span>
+          <span class="token-chip" style="--tc:var(--cyan);font-size:.72em;padding:3px 8px">стол</span>
+          <span class="token-chip" style="--tc:var(--green);font-size:.72em;padding:3px 8px">ица</span>
+          <span class="token-chip" style="--tc:var(--accent);font-size:.72em;padding:3px 8px">Франц</span>
+          <span class="token-chip" style="--tc:var(--yellow);font-size:.72em;padding:3px 8px">ии</span>
+          <span class="token-chip gen-pulse" id="rGenLast" style="--tc:var(--red);font-size:.72em;padding:3px 8px">?</span>
+        </div>
+        <!-- Spinner 1 -->
+        <div id="rGenSpin1" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;gap:8px">
+          <div class="gen-spinner"></div>
+          <span style="font-size:.7em;color:var(--muted)">60 слоёв...</span>
+        </div>
+        <!-- + Пар appears -->
+        <div id="rGenTok1" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;gap:6px">
+          <span style="font-size:.7em;color:var(--muted)">→</span>
+          <span style="font-family:var(--mono);font-size:1em;font-weight:700;color:var(--green);background:rgba(52,211,153,.12);padding:4px 12px;border-radius:6px;border:1px solid rgba(52,211,153,.3)">Пар</span>
+        </div>
+        <!-- Spinner 2 -->
+        <div id="rGenSpin2" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;gap:8px">
+          <div class="gen-spinner"></div>
+          <span style="font-size:.7em;color:var(--muted)">ещё 60 слоёв...</span>
+        </div>
+        <!-- + иж appears -->
+        <div id="rGenTok2" style="opacity:0;transition:opacity .5s;display:flex;align-items:center;gap:6px">
+          <span style="font-size:.7em;color:var(--muted)">→</span>
+          <span style="font-family:var(--mono);font-size:1em;font-weight:700;color:var(--green);background:rgba(52,211,153,.12);padding:4px 12px;border-radius:6px;border:1px solid rgba(52,211,153,.3)">иж</span>
+        </div>
+        <!-- Final: Париж -->
+        <div id="rGenFinal" style="opacity:0;transition:opacity .8s;margin-top:6px">
+          <div style="font-family:var(--mono);font-size:2.5em;font-weight:800;color:var(--green)">Париж</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Key numbers — appear at the end -->
+    <div id="replayNumbers" style="opacity:0;transition:opacity .8s;display:flex;gap:14px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+      <div style="text-align:center">
+        <div style="font-size:1.2em;font-weight:800;color:var(--accent);font-family:var(--mono)">7</div>
+        <div style="font-size:.55em;color:var(--dim)">токенов</div>
+      </div>
+      <div style="color:var(--muted);align-self:center;opacity:.2">·</div>
+      <div style="text-align:center">
+        <div style="font-size:1.2em;font-weight:800;color:var(--cyan);font-family:var(--mono)">4096</div>
+        <div style="font-size:.55em;color:var(--dim)">измерений</div>
+      </div>
+      <div style="color:var(--muted);align-self:center;opacity:.2">·</div>
+      <div style="text-align:center">
+        <div style="font-size:1.2em;font-weight:800;color:var(--orange);font-family:var(--mono)">60</div>
+        <div style="font-size:.55em;color:var(--dim)">слоёв</div>
+      </div>
+      <div style="color:var(--muted);align-self:center;opacity:.2">·</div>
+      <div style="text-align:center">
+        <div style="font-size:1.2em;font-weight:800;color:var(--pink);font-family:var(--mono)">3T</div>
+        <div style="font-size:.55em;color:var(--dim)">параметров</div>
+      </div>
+      <div style="color:var(--muted);align-self:center;opacity:.2">·</div>
+      <div style="text-align:center">
+        <div style="font-size:1.2em;font-weight:800;color:var(--green);font-family:var(--mono)">100K</div>
+        <div style="font-size:.55em;color:var(--dim)">словарь</div>
+      </div>
+    </div>
+
+  </div>
+</div></div>
+
+</div><!-- /slides -->
+
+<script>
+// ── Steps config ──
+const STEPS = [
+  {label:'Старт'},{label:'Ввод'},{label:'Промпт'},{label:'API'},
+  {label:'Токены'},{label:'Эмбеддинги'},{label:'Attention'},
+  {label:'FFN'},{label:'Обучение'},{label:'×60'},{label:'GPU'},{label:'Генерация'},{label:'Итого'}
+];
+let current = 0;
+const total = STEPS.length;
+const slidesRaw = document.querySelectorAll('.slide');
+const slides = Array.from(slidesRaw).sort((a,b) => Number(a.dataset.step) - Number(b.dataset.step));
+const btnPrev = document.getElementById('btnPrev');
+const btnNext = document.getElementById('btnNext');
+const curStepEl = document.getElementById('curStep');
+const totalStepsEl = document.getElementById('totalSteps');
+const progressFill = document.getElementById('progressFill');
+const stepsTrack = document.getElementById('stepsTrack');
+totalStepsEl.textContent = total;
+
+// Build step dots
+STEPS.forEach((s,i) => {
+  const el = document.createElement('div');
+  el.className = 'step-dot' + (i===0?' active':'');
+  el.innerHTML = `<div class="dot">${i+1}<div class="dot-label">${s.label}</div></div>${i<total-1?'<div class="line"></div>':''}`;
+  el.addEventListener('click', () => goTo(i));
+  stepsTrack.appendChild(el);
+});
+
+// ── Navigation ──
+function goTo(idx) {
+  if (idx<0||idx>=total||idx===current) return;
+  const forward = idx > current;
+  const prev = current;
+
+  // Matrix effect disabled — clean transitions everywhere
+
+  doTransition(prev, idx, forward);
+}
+
+function doTransition(prev, idx, forward) {
+  slides[prev].classList.remove('active');
+  slides[prev].classList.add(forward ? 'exit-left' : 'exit-right');
+
+  slides[idx].classList.remove('exit-left','exit-right','active');
+  slides[idx].style.transition = 'none';
+  slides[idx].style.opacity = '0';
+  slides[idx].style.transform = forward ? 'translateX(60px)' : 'translateX(-60px)';
+  slides[idx].offsetHeight;
+
+  slides[idx].style.transition = '';
+  slides[idx].classList.add('active');
+  slides[idx].style.opacity = '';
+  slides[idx].style.transform = '';
+
+  setTimeout(() => { slides[prev].classList.remove('exit-left','exit-right'); }, 500);
+
+  // Reset scroll to top on new slide
+  slides[idx].scrollTop = 0;
+
+  current = idx;
+  updateUI();
+
+  // Auto-play attention animation on slide 7 (step 6)
+  if (idx === 6) {
+    setTimeout(() => showAttention(4), 400);
+  }
+}
+
+function updateUI() {
+  curStepEl.textContent = current + 1;
+  progressFill.style.width = ((current+1)/total*100) + '%';
+  btnPrev.disabled = current === 0;
+  btnNext.textContent = current === total-1 ? 'Готово' : 'Далее →';
+  document.querySelectorAll('.step-dot').forEach((d,i) => {
+    d.classList.remove('active','done');
+    if (i < current) d.classList.add('done');
+    if (i === current) d.classList.add('active');
+  });
+}
+
+btnPrev.addEventListener('click', () => goTo(current-1));
+btnNext.addEventListener('click', () => { if(current<total-1) goTo(current+1); });
+document.addEventListener('keydown', e => {
+  if (e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();goTo(current+1)}
+  if (e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();goTo(current-1)}
+});
+updateUI();
+
+// ── Typing animation (slide 2) ──
+const QUERY = 'Какая столица Франции?';
+const typingEl = document.getElementById('typingText');
+let charIdx = 0;
+let typingStarted = false;
+
+function startTyping() {
+  if (typingStarted) return;
+  typingStarted = true;
+  charIdx = 0;
+  typeNext();
+}
+
+function typeNext() {
+  if (charIdx <= QUERY.length) {
+    typingEl.innerHTML = QUERY.slice(0, charIdx) + '<span class="cursor">&hairsp;</span>';
+    charIdx++;
+    setTimeout(typeNext, 55 + Math.random() * 70);
+  } else {
+    typingEl.innerHTML = QUERY + '<span class="cursor">&hairsp;</span>';
+  }
+}
+
+// Start typing when slide 2 becomes active
+const origGoTo = goTo;
+const observer = new MutationObserver(() => {
+  if (current === 1 && !typingStarted) {
+    setTimeout(startTyping, 400);
+  }
+});
+observer.observe(document.getElementById('slidesContainer'), {subtree:true, attributes:true, attributeFilter:['class']});
+
+// ── Matrix rain effect ──
+const matrixCanvas = document.getElementById('matrixCanvas');
+const ctx = matrixCanvas.getContext('2d');
+
+function triggerMatrixEffect(callback) {
+  matrixCanvas.width = window.innerWidth;
+  matrixCanvas.height = window.innerHeight;
+  matrixCanvas.classList.add('active');
+
+  const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEF{}[]",:';
+  const fontSize = 14;
+  const columns = Math.floor(matrixCanvas.width / fontSize);
+  const drops = new Array(columns).fill(0).map(() => Math.random() * -20 | 0);
+
+  let frames = 0;
+  const maxFrames = 35;
+
+  function drawMatrix() {
+    ctx.fillStyle = 'rgba(10,10,15,0.12)';
+    ctx.fillRect(0, 0, matrixCanvas.width, matrixCanvas.height);
+    ctx.fillStyle = '#6366f1';
+    ctx.font = fontSize + 'px ' + 'JetBrains Mono, monospace';
+
+    for (let i = 0; i < drops.length; i++) {
+      const char = chars[Math.random() * chars.length | 0];
+      const x = i * fontSize;
+      const y = drops[i] * fontSize;
+      ctx.globalAlpha = 0.4 + Math.random() * 0.6;
+      ctx.fillText(char, x, y);
+      if (y > matrixCanvas.height && Math.random() > 0.95) drops[i] = 0;
+      drops[i]++;
+    }
+    ctx.globalAlpha = 1;
+    frames++;
+    if (frames < maxFrames) {
+      requestAnimationFrame(drawMatrix);
+    } else {
+      // Fade out
+      matrixCanvas.style.transition = 'opacity .3s';
+      matrixCanvas.classList.remove('active');
+      setTimeout(() => {
+        ctx.clearRect(0, 0, matrixCanvas.width, matrixCanvas.height);
+        matrixCanvas.style.transition = '';
+        callback();
+      }, 350);
+    }
+  }
+
+  // Flash the chat window briefly
+  const chatWin = document.getElementById('chatWindow');
+  if (chatWin) chatWin.style.boxShadow = '0 0 60px rgba(99,102,241,.6)';
+  setTimeout(() => { if(chatWin) chatWin.style.boxShadow = ''; }, 400);
+
+  drawMatrix();
+}
+
+// ── Slide 4: Model size calculator with laptops ──
+const MODELS = [
+  { key:'gpt2', name:'GPT-2',    year:2019, params:1.5,    unit:'B', gb:3,    est:false, jump:'',      note:'Первая модель, удивившая мир генерацией текста. Влезает в телефон.' },
+  { key:'gpt3', name:'GPT-3',    year:2020, params:175,    unit:'B', gb:350,  est:false, jump:'×117',  note:'Скачок ×117. Первая модель, способная вести связный диалог. Уже не влезает ни в один потребительский компьютер.' },
+  { key:'gpt4', name:'GPT-4',    year:2023, params:1800,   unit:'B', gb:3600, est:true,  jump:'×10',   note:'Mixture of Experts: 16 экспертов по ~111B. На каждый запрос активны ~2, но в памяти нужны все 1.8T.' },
+  { key:'gpt5', name:'GPT-5.4',  year:2026, params:3000,   unit:'B', gb:6000, est:true,  jump:'×1.5–3', note:'MoE, 3T активных параметров. Акцент: не "больше", а "умнее". Единый inference pipeline вместо набора моделей.' },
+];
+const MODEL_MAP = {};
+MODELS.forEach(m => MODEL_MAP[m.key] = m);
+const LAPTOP_GB = 16; // MacBook Pro 16GB
+
+function fmtParams(b) {
+  if (b >= 1000) return (b/1000).toFixed(1).replace('.0','') + 'T';
+  return b + 'B';
+}
+
+function updateModelCalc(key) {
+  const m = MODEL_MAP[key];
+  const laptops = Math.ceil(m.gb / LAPTOP_GB);
+
+  // Header
+  document.getElementById('modelName').textContent = m.name + ' (' + m.year + ')';
+  document.getElementById('modelJump').textContent = m.jump ? 'рост ' + m.jump : '';
+  document.getElementById('modelMath').innerHTML =
+    fmtParams(m.params) + ' параметров × 2 байта = <strong style="color:var(--text)">' + m.gb.toLocaleString() + ' GB</strong>' + (m.est ? ' <span style="opacity:.5">(оценка)</span>' : '');
+
+  // ── Parameter dots ──
+  // Each dot represents a "unit". For GPT-2 show 1 dot, for GPT-3 show proportionally more, etc.
+  // ── Parameter icons (fixed size, scrollable) ──
+  const paramGrid = document.getElementById('paramGrid');
+  paramGrid.innerHTML = '';
+  // Scale: 1 icon per 10B params (so GPT-2=1, GPT-3=18, GPT-4=180, GPT-5.4=300)
+  const paramScale = 10;
+  const paramIcons = Math.max(1, Math.round(m.params / paramScale));
+
+  for (let i = 0; i < paramIcons; i++) {
+    const d = document.createElement('span');
+    d.textContent = '🧠';
+    d.style.cssText = 'font-size:24px;line-height:1.3;display:inline-block;opacity:0.6;';
+    paramGrid.appendChild(d);
+  }
+  document.getElementById('paramLabel').innerHTML =
+    paramIcons === 1 ? '🧠 = ' + fmtParams(m.params) : 'каждый 🧠 ≈ 10B параметров';
+
+  // ── MacBook icons (fixed size, scrollable) ──
+  const grid = document.getElementById('laptopGrid');
+  grid.innerHTML = '';
+
+  for (let i = 0; i < laptops; i++) {
+    const d = document.createElement('span');
+    d.textContent = '💻';
+    d.style.cssText = 'font-size:24px;line-height:1.3;display:inline-block;' + (i === 0 ? '' : 'opacity:0.5;');
+    if (i === 0) d.title = '← ваш ноутбук';
+    grid.appendChild(d);
+  }
+  document.getElementById('laptopLabel').innerHTML =
+    '<span style="color:var(--green)">●</span> ваш Mac 16GB &nbsp; ' +
+    (laptops > 1 ? '<span style="color:var(--red);opacity:.6">●</span> ещё нужно &nbsp; ' : '') +
+    '<strong style="color:var(--text)">' + laptops + '</strong> ' + (laptops === 1 ? 'ноутбук' : laptops < 5 ? 'ноутбука' : 'ноутбуков');
+
+  // Verdict
+  const v = document.getElementById('modelVerdict');
+  if (m.gb <= LAPTOP_GB) {
+    v.style.background = 'rgba(52,211,153,.08)';
+    v.style.color = 'var(--green)';
+    v.textContent = '✓ Влезает в один ноутбук';
+  } else if (m.gb <= 100) {
+    v.style.background = 'rgba(251,191,36,.08)';
+    v.style.color = 'var(--yellow)';
+    v.textContent = '⚠ Теоретически впихнётся в топовый Mac Studio, но работать будет медленно';
+  } else {
+    v.style.background = 'rgba(248,113,113,.08)';
+    v.style.color = 'var(--red)';
+    v.innerHTML = '✗ Нужен серверный GPU-кластер';
+  }
+
+  // Note
+  document.getElementById('modelNote').textContent = m.note || '';
+
+  // Button states
+  document.querySelectorAll('.model-size-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.key === key);
+  });
+}
+
+document.querySelectorAll('.model-size-btn').forEach(btn => {
+  btn.addEventListener('click', () => updateModelCalc(btn.dataset.key));
+});
+
+// ── Tooltip system for info-click elements (lazy lookup) ──
+document.addEventListener('click', e => {
+  const tip = document.getElementById('infoTooltip');
+  if (!tip) return;
+  const el = e.target.closest('.info-click');
+  if (el && el.dataset.tooltip) {
+    tip.textContent = el.dataset.tooltip;
+    tip.style.display = 'block';
+    tip.offsetHeight; // force reflow
+    const rect = el.getBoundingClientRect();
+    const tipH = tip.offsetHeight;
+    tip.style.left = Math.min(rect.left, window.innerWidth - 330) + 'px';
+    // Show above element; if not enough space above, show below
+    const above = rect.top - tipH - 10;
+    const topPos = above > 60 ? above : rect.bottom + 8;
+    tip.style.top = Math.max(60, Math.min(topPos, window.innerHeight - tipH - 10)) + 'px';
+    setTimeout(() => { tip.style.display = 'none'; }, 5000);
+  } else {
+    tip.style.display = 'none';
+  }
+});
+
+updateModelCalc('gpt2');
+
+// ── Slide 4: API — 3 levels of expansion ──
+function toggleApiBody() {
+  const body = document.getElementById('apiBody');
+  const btn = document.getElementById('apiHeaderBtn');
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  btn.classList.toggle('open', !isOpen);
+}
+function toggleApiSys(e) {
+  e.stopPropagation();
+  const detail = document.getElementById('apiSysDetail');
+  const preview = document.getElementById('apiSysPreview');
+  const arrow = document.getElementById('apiSysArrow');
+  const isOpen = detail.style.display !== 'none';
+  detail.style.display = isOpen ? 'none' : 'block';
+  preview.style.display = isOpen ? '' : 'none';
+  arrow.classList.toggle('open', !isOpen);
+}
+function toggleApiUser(e) {
+  e.stopPropagation();
+  const detail = document.getElementById('apiUserDetail');
+  const arrow = document.getElementById('apiUserArrow');
+  const isOpen = detail.style.display !== 'none';
+  detail.style.display = isOpen ? 'none' : 'block';
+  arrow.classList.toggle('open', !isOpen);
+}
+
+// ── Slide 6: Embeddings — table with meaning rows ──
+const embDimensions = [
+  { label: 'география',     hint: 'связано с местами?',          vals: [0.01,-0.02, 0.15, 0.05, 0.92, 0.03,-0.01] },
+  { label: 'вопрос',        hint: 'это вопросительное?',         vals: [0.88, 0.12,-0.03,-0.01, 0.02, 0.01, 0.95] },
+  { label: 'государство',   hint: 'связано с политикой/страной?',vals: [0.01,-0.01, 0.72, 0.80, 0.85, 0.10,-0.02] },
+  { label: 'европа',        hint: 'связано с Европой?',          vals: [0.00, 0.00, 0.03, 0.02, 0.91, 0.15, 0.00] },
+  { label: 'абстрактное',   hint: 'абстрактное понятие?',        vals: [0.70, 0.60, 0.45, 0.50,-0.10, 0.55, 0.80] },
+  { label: '···', hint: '', vals: null },
+  { label: '#4096',         hint: '',                             vals: [0.03,-0.41, 0.12,-0.05, 0.07, 0.33,-0.18] },
+];
+const embTable = document.getElementById('embTableBody');
+if (embTable) {
+  const colors = ['var(--pink)','var(--orange)','var(--cyan)','var(--green)','var(--accent)','var(--yellow)','var(--red)'];
+  embDimensions.forEach(dim => {
+    const tr = document.createElement('tr');
+    if (dim.vals === null) {
+      tr.innerHTML = `<td style="padding:2px 8px;color:var(--muted);text-align:left;font-size:.9em" colspan="8">···  ещё 4090 измерений  ···</td>`;
+    } else {
+      // Label cell
+      const labelTd = document.createElement('td');
+      labelTd.style.cssText = 'padding:3px 8px;color:var(--dim);text-align:left;font-size:.85em;white-space:nowrap;border-right:1px solid rgba(255,255,255,.04)';
+      if (dim.hint) {
+        labelTd.innerHTML = `<span class="info-click" data-tooltip="${dim.hint}" style="border-bottom:1px dashed rgba(255,255,255,.15);cursor:pointer">${dim.label}</span>`;
+      } else {
+        labelTd.textContent = dim.label;
+      }
+      tr.appendChild(labelTd);
+      // Value cells
+      dim.vals.forEach((v, i) => {
+        const td = document.createElement('td');
+        td.style.cssText = `padding:3px 6px;text-align:center;color:${colors[i]};opacity:${Math.abs(v) < 0.1 ? '0.25' : '0.8'}`;
+        td.textContent = v >= 0 ? ' '+v.toFixed(1) : v.toFixed(1);
+        tr.appendChild(td);
+      });
+    }
+    embTable.appendChild(tr);
+  });
+}
+
+// Embedding space canvas
+const embCanvas = document.getElementById('embCanvas');
+if (embCanvas) {
+  const ctx2 = embCanvas.getContext('2d');
+  const W = 700, H = 170;
+
+  const words = [
+    // Cities cluster
+    {x:0.55, y:0.3, label:'Париж', color:'#6366f1', cluster:'cities'},
+    {x:0.62, y:0.25, label:'Берлин', color:'#6366f1', cluster:'cities'},
+    {x:0.50, y:0.35, label:'Мадрид', color:'#6366f1', cluster:'cities'},
+    {x:0.58, y:0.38, label:'Рим', color:'#6366f1', cluster:'cities'},
+    {x:0.48, y:0.28, label:'Лондон', color:'#6366f1', cluster:'cities'},
+    // Countries cluster
+    {x:0.72, y:0.55, label:'Франция', color:'#22d3ee', cluster:'countries'},
+    {x:0.78, y:0.50, label:'Германия', color:'#22d3ee', cluster:'countries'},
+    {x:0.68, y:0.60, label:'Испания', color:'#22d3ee', cluster:'countries'},
+    {x:0.80, y:0.62, label:'Италия', color:'#22d3ee', cluster:'countries'},
+    // Question words
+    {x:0.15, y:0.30, label:'Какая', color:'#fb923c', cluster:'questions'},
+    {x:0.12, y:0.40, label:'Где', color:'#fb923c', cluster:'questions'},
+    {x:0.20, y:0.45, label:'Кто', color:'#fb923c', cluster:'questions'},
+    // Unrelated
+    {x:0.15, y:0.80, label:'кошка', color:'#5a5a72', cluster:'other'},
+    {x:0.25, y:0.78, label:'молоко', color:'#5a5a72', cluster:'other'},
+    // Our tokens (highlighted)
+    {x:0.38, y:0.50, label:'столица', color:'#34d399', cluster:'concept', highlight:true},
+  ];
+
+  let activeWord = null;
+
+  function drawEmbSpace() {
+    ctx2.clearRect(0, 0, W, H);
+
+    // Background
+    ctx2.fillStyle = '#0a0a0f';
+    ctx2.fillRect(0, 0, W, H);
+
+    // Draw cluster circles (faint)
+    const clusters = {
+      cities: {x:0.56, y:0.31, r:0.12, color:'rgba(99,102,241,.06)'},
+      countries: {x:0.74, y:0.57, r:0.11, color:'rgba(34,211,238,.06)'},
+      questions: {x:0.16, y:0.38, r:0.1, color:'rgba(251,146,60,.06)'},
+    };
+    for (const c of Object.values(clusters)) {
+      ctx2.beginPath();
+      ctx2.arc(c.x * W, c.y * H, c.r * W, 0, Math.PI * 2);
+      ctx2.fillStyle = c.color;
+      ctx2.fill();
+    }
+
+    // Draw connection lines to active word
+    if (activeWord) {
+      for (const w of words) {
+        if (w === activeWord) continue;
+        const dx = w.x - activeWord.x;
+        const dy = w.y - activeWord.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 0.25) {
+          ctx2.beginPath();
+          ctx2.moveTo(activeWord.x * W, activeWord.y * H);
+          ctx2.lineTo(w.x * W, w.y * H);
+          ctx2.strokeStyle = 'rgba(255,255,255,' + (0.15 - dist * 0.5) + ')';
+          ctx2.lineWidth = 1;
+          ctx2.stroke();
+        }
+      }
+    }
+
+    // Draw words
+    for (const w of words) {
+      const x = w.x * W, y = w.y * H;
+      const isActive = w === activeWord;
+      const r = isActive ? 5 : (w.highlight ? 4 : 3);
+
+      ctx2.beginPath();
+      ctx2.arc(x, y, r, 0, Math.PI * 2);
+      ctx2.fillStyle = w.color;
+      ctx2.globalAlpha = isActive ? 1 : 0.7;
+      ctx2.fill();
+      ctx2.globalAlpha = 1;
+
+      if (isActive) {
+        ctx2.beginPath();
+        ctx2.arc(x, y, 10, 0, Math.PI * 2);
+        ctx2.strokeStyle = w.color;
+        ctx2.globalAlpha = 0.3;
+        ctx2.lineWidth = 2;
+        ctx2.stroke();
+        ctx2.globalAlpha = 1;
+      }
+
+      ctx2.font = (isActive ? '600 12px' : '11px') + ' Inter, sans-serif';
+      ctx2.fillStyle = isActive ? '#e8e8f0' : w.color;
+      ctx2.globalAlpha = isActive ? 1 : 0.8;
+      ctx2.fillText(w.label, x + r + 4, y + 4);
+      ctx2.globalAlpha = 1;
+    }
+
+    // Cluster labels
+    ctx2.font = '600 10px JetBrains Mono, monospace';
+    ctx2.globalAlpha = 0.25;
+    ctx2.fillStyle = '#6366f1';
+    ctx2.fillText('города', 0.50 * W, 0.17 * H);
+    ctx2.fillStyle = '#22d3ee';
+    ctx2.fillText('страны', 0.70 * W, 0.42 * H);
+    ctx2.fillStyle = '#fb923c';
+    ctx2.fillText('вопросы', 0.05 * W, 0.22 * H);
+    ctx2.fillStyle = '#5a5a72';
+    ctx2.fillText('другое', 0.08 * W, 0.72 * H);
+    ctx2.globalAlpha = 1;
+  }
+
+  embCanvas.addEventListener('click', e => {
+    const rect = embCanvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width;
+    const my = (e.clientY - rect.top) / rect.height;
+
+    let closest = null, minD = 0.05;
+    for (const w of words) {
+      const dx = w.x - mx, dy = w.y - my;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d < minD) { minD = d; closest = w; }
+    }
+    activeWord = closest === activeWord ? null : closest;
+    drawEmbSpace();
+  });
+
+  drawEmbSpace();
+}
+
+// ── Slide 5: Tokenization — click on token units ──
+const tokenDetail = document.getElementById('tokenDetail');
+document.querySelectorAll('.tok-unit').forEach(unit => {
+  unit.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasActive = unit.classList.contains('active');
+    document.querySelectorAll('.tok-unit').forEach(u => u.classList.remove('active'));
+
+    if (wasActive) {
+      tokenDetail.style.display = 'none';
+      return;
+    }
+
+    unit.classList.add('active');
+    const chip = unit.querySelector('.token-chip');
+    const id = unit.querySelector('.tok-id-label').textContent;
+    const info = unit.dataset.tokInfo;
+    tokenDetail.style.display = 'block';
+    tokenDetail.innerHTML = `
+      <span style="font-family:var(--mono);color:var(--text);font-weight:700">"${chip.textContent}"</span>
+      <span style="color:var(--muted);margin:0 8px">→</span>
+      <span style="font-family:var(--mono);color:var(--muted)">ID ${id}</span>
+      <div style="margin-top:6px;color:var(--dim)">${info}</div>
+    `;
+  });
+});
+
+
+// ── Slide 8: FFN — concrete dimensions of "столица" ──
+const ffnCanvas = document.getElementById('ffnCanvas');
+if (ffnCanvas) {
+  const fctx = ffnCanvas.getContext('2d');
+  const FW = 800, FH = 380;
+  ffnCanvas.width = FW;
+  ffnCanvas.height = FH;
+
+  // Concrete dimensions we show (5 of 4096)
+  const dims = [
+    { name:'география',      valIn: 0.9,  valOut: 0.85, color:'#6366f1' },
+    { name:'гос. устройство', valIn: 0.7,  valOut: 0.75, color:'#22d3ee' },
+    { name:'вопрос',          valIn: 0.3,  valOut: 0.35, color:'#fb923c' },
+    { name:'европа',          valIn: 0.9,  valOut: 0.82, color:'#f472b6' },
+    { name:'#2187',           valIn: 0.02, valOut: 0.78, color:'#fbbf24', isNew: true, hint:'абстрактное направление, при декодировании ведёт к токену «Пар»' },
+  ];
+
+  const hiddenCount = 40;
+  const inputX = 120, hiddenX = 400, outputX = 680;
+  const topPad = 30, botPad = 40;
+
+  // Hidden nodes that are "active" for each path
+  const pathMap = [
+    { dimIdx: 0, hidden: [3, 8, 14] },
+    { dimIdx: 1, hidden: [6, 12, 18, 24] },
+    { dimIdx: 2, hidden: [20, 26] },
+    { dimIdx: 3, hidden: [10, 16, 22] },
+    { dimIdx: 4, hidden: [8, 14, 18, 24, 30], isNew: true },  // Париж — uses multiple existing hidden nodes
+  ];
+  const activeHidden = new Set();
+  pathMap.forEach(p => p.hidden.forEach(h => activeHidden.add(h)));
+
+  function dimY(i) { return topPad + (FH - topPad - botPad) * (i / (dims.length - 1)); }
+  function hidY(i) { return topPad + (FH - topPad - botPad) * (i / (hiddenCount - 1)); }
+
+  let ffnTime = 0;
+  let ffnAnimating = false;
+
+  function drawFFN() {
+    fctx.clearRect(0, 0, FW, FH);
+    fctx.fillStyle = '#0a0a0f';
+    fctx.fillRect(0, 0, FW, FH);
+
+    // ── Hidden layer nodes (background, dim) ──
+    for (let i = 0; i < hiddenCount; i++) {
+      const y = hidY(i);
+      const isAct = activeHidden.has(i);
+      fctx.beginPath();
+      fctx.arc(hiddenX, y, isAct ? 3.5 : 1.5, 0, Math.PI*2);
+      fctx.fillStyle = isAct ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)';
+      fctx.fill();
+    }
+
+    // ── Paths with animated signals ──
+    const cycleLen = 200;
+    const t = (ffnTime % cycleLen) / cycleLen;
+
+    pathMap.forEach((path, pi) => {
+      const dim = dims[path.dimIdx];
+      const iy = dimY(path.dimIdx);
+      const oy = dimY(path.dimIdx);
+      const alpha = dim.isNew ? 0.5 : 0.25;
+      const lineW = dim.isNew ? 2 : 1;
+
+      path.hidden.forEach(hi => {
+        const hy = hidY(hi);
+
+        // Input → Hidden
+        fctx.beginPath();
+        fctx.moveTo(inputX + 8, iy);
+        fctx.lineTo(hiddenX, hy);
+        fctx.strokeStyle = dim.color;
+        fctx.globalAlpha = alpha;
+        fctx.lineWidth = lineW;
+        fctx.stroke();
+        fctx.globalAlpha = 1;
+
+        // Hidden → Output
+        fctx.beginPath();
+        fctx.moveTo(hiddenX, hy);
+        fctx.lineTo(outputX - 8, oy);
+        fctx.strokeStyle = dim.color;
+        fctx.globalAlpha = alpha * 0.8;
+        fctx.lineWidth = lineW;
+        fctx.stroke();
+        fctx.globalAlpha = 1;
+
+        // Active hidden glow
+        fctx.beginPath();
+        fctx.arc(hiddenX, hy, 4, 0, Math.PI*2);
+        fctx.fillStyle = dim.color;
+        fctx.globalAlpha = 0.5;
+        fctx.shadowColor = dim.color;
+        fctx.shadowBlur = dim.isNew ? 12 : 6;
+        fctx.fill();
+        fctx.shadowBlur = 0;
+        fctx.globalAlpha = 1;
+      });
+
+      // Animated pulse
+      const offset = pi * 0.18;
+      const pt = (t + offset) % 1;
+      const midHi = path.hidden[Math.floor(path.hidden.length / 2)];
+      const hy = hidY(midHi);
+
+      if (pt < 0.5) {
+        const pt2 = pt * 2;
+        const px = (inputX+8) + (hiddenX - inputX - 8) * pt2;
+        const py = iy + (hy - iy) * pt2;
+        fctx.beginPath();
+        fctx.arc(px, py, dim.isNew ? 4 : 3, 0, Math.PI*2);
+        fctx.fillStyle = dim.color;
+        fctx.shadowColor = dim.color;
+        fctx.shadowBlur = 14;
+        fctx.fill();
+        fctx.shadowBlur = 0;
+      } else {
+        const pt2 = (pt - 0.5) * 2;
+        const px = hiddenX + (outputX - 8 - hiddenX) * pt2;
+        const py = hy + (oy - hy) * pt2;
+        fctx.beginPath();
+        fctx.arc(px, py, dim.isNew ? 4 : 3, 0, Math.PI*2);
+        fctx.fillStyle = dim.color;
+        fctx.shadowColor = dim.color;
+        fctx.shadowBlur = 14;
+        fctx.fill();
+        fctx.shadowBlur = 0;
+      }
+    });
+
+    // ── Input nodes with labels + values ──
+    dims.forEach((dim, i) => {
+      const y = dimY(i);
+      // Node
+      fctx.beginPath();
+      fctx.arc(inputX, y, 6, 0, Math.PI*2);
+      fctx.fillStyle = dim.color;
+      fctx.globalAlpha = 0.8;
+      fctx.fill();
+      fctx.globalAlpha = 1;
+      // Label left
+      fctx.font = '12px Inter, sans-serif';
+      fctx.fillStyle = dim.color;
+      fctx.globalAlpha = 0.8;
+      fctx.textAlign = 'right';
+      fctx.fillText(dim.name + ' ' + dim.valIn.toFixed(1), inputX - 14, y + 4);
+      fctx.globalAlpha = 1;
+    });
+
+    // ── Output nodes with labels + values ──
+    dims.forEach((dim, i) => {
+      const y = dimY(i);
+      // Node
+      fctx.beginPath();
+      fctx.arc(outputX, y, 6, 0, Math.PI*2);
+      fctx.fillStyle = dim.color;
+      fctx.globalAlpha = dim.isNew ? 1 : 0.8;
+      if (dim.isNew) { fctx.shadowColor = dim.color; fctx.shadowBlur = 12; }
+      fctx.fill();
+      fctx.shadowBlur = 0;
+      fctx.globalAlpha = 1;
+      // Label right
+      fctx.font = dim.isNew ? 'bold 13px Inter, sans-serif' : '12px Inter, sans-serif';
+      fctx.fillStyle = dim.color;
+      fctx.globalAlpha = dim.isNew ? 1 : 0.8;
+      fctx.textAlign = 'left';
+      const outLabel = dim.isNew
+        ? dim.valOut.toFixed(1) + ' ' + dim.name + ' ← сильно выросло!'
+        : dim.valOut.toFixed(1) + ' ' + dim.name;
+      fctx.fillText(outLabel, outputX + 14, y + 4);
+      fctx.globalAlpha = 1;
+    });
+
+    fctx.textAlign = 'left'; // reset
+
+    // ── Layer labels at bottom ──
+    fctx.font = '600 10px JetBrains Mono, monospace';
+    fctx.fillStyle = 'rgba(255,255,255,0.2)';
+    fctx.textAlign = 'center';
+    fctx.fillText('вход (4096)', inputX, FH - 8);
+    fctx.fillText('16384 нейронов', hiddenX, FH - 8);
+    fctx.fillText('выход (4096)', outputX, FH - 8);
+    fctx.textAlign = 'left';
+
+    // ── "...ещё 4091" hint ──
+    fctx.font = '10px Inter, sans-serif';
+    fctx.fillStyle = 'rgba(255,255,255,0.15)';
+    fctx.textAlign = 'right';
+    fctx.fillText('...ещё 4091', inputX - 14, FH - 28);
+    fctx.textAlign = 'left';
+    fctx.fillText('...ещё 4091', outputX + 14, FH - 28);
+
+    ffnTime++;
+    if (ffnAnimating) requestAnimationFrame(drawFFN);
+  }
+
+  // Start/stop animation when slide is visible
+  const ffnObserver = new MutationObserver(() => {
+    const slide = ffnCanvas.closest('.slide');
+    if (slide && slide.classList.contains('active')) {
+      if (!ffnAnimating) { ffnAnimating = true; ffnTime = 0; drawFFN(); }
+    } else {
+      ffnAnimating = false;
+    }
+  });
+  ffnObserver.observe(document.getElementById('slidesContainer'), {subtree:true, attributes:true, attributeFilter:['class']});
+}
+
+// ── Slide 8: FFN neuron canvas (clickable) ──
+const ffnNeuronCanvas = document.getElementById('ffnNeuronCanvas');
+if (ffnNeuronCanvas) {
+  const nctx = ffnNeuronCanvas.getContext('2d');
+  const NW = 140, NH = 200;
+  const cols = 14, rows = 20;
+  const ffnNeurons = [];
+
+  // Generate neuron data
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = 5 + c * ((NW - 10) / (cols - 1));
+      const y = 5 + r * ((NH - 10) / (rows - 1));
+      const isActive = Math.random() < 0.22;
+      const sum = (Math.random() * 4 - 2);
+      const act = sum > 0 ? sum * 0.85 : sum * 0.01;
+      ffnNeurons.push({ x, y, isActive: act > 0.05, sum, activated: act, id: r * cols + c });
+    }
+  }
+
+  function drawFFNNeurons(highlightIdx) {
+    nctx.clearRect(0, 0, NW, NH);
+    nctx.fillStyle = '#0a0a0f';
+    nctx.fillRect(0, 0, NW, NH);
+
+    ffnNeurons.forEach((n, i) => {
+      const isHi = i === highlightIdx;
+      if (isHi) {
+        nctx.beginPath();
+        nctx.arc(n.x, n.y, 8, 0, Math.PI * 2);
+        nctx.fillStyle = 'rgba(34,211,238,.2)';
+        nctx.fill();
+      }
+      nctx.beginPath();
+      nctx.arc(n.x, n.y, isHi ? 4 : (n.isActive ? 3 : 1.5), 0, Math.PI * 2);
+      if (n.isActive) {
+        nctx.fillStyle = '#22d3ee';
+        nctx.globalAlpha = isHi ? 1 : (0.4 + Math.random() * 0.3);
+        if (isHi) { nctx.shadowColor = '#22d3ee'; nctx.shadowBlur = 10; }
+      } else {
+        nctx.fillStyle = isHi ? 'rgba(248,113,113,.6)' : 'rgba(34,211,238,.08)';
+        nctx.globalAlpha = 1;
+      }
+      nctx.fill();
+      nctx.globalAlpha = 1;
+      nctx.shadowBlur = 0;
+    });
+  }
+
+  drawFFNNeurons(-1);
+
+  // Click on neuron → show tooltip
+  ffnNeuronCanvas.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const rect = ffnNeuronCanvas.getBoundingClientRect();
+    const sx = NW / rect.width, sy = NH / rect.height;
+    const mx = (e.clientX - rect.left) * sx, my = (e.clientY - rect.top) * sy;
+
+    let closest = -1, minD = 8;
+    ffnNeurons.forEach((n, i) => {
+      const d = Math.sqrt((mx - n.x) ** 2 + (my - n.y) ** 2);
+      if (d < minD) { minD = d; closest = i; }
+    });
+
+    if (closest >= 0) {
+      drawFFNNeurons(closest);
+      const nd = ffnNeurons[closest];
+      const tip = document.getElementById('infoTooltip');
+      if (tip) {
+        const ws = [0.3, -0.5, 0.8, 0.1].map(w => (w + (Math.random() - 0.5) * 0.4).toFixed(2));
+        const inps = [{n:'геогр.',v:0.9},{n:'гос.у.',v:0.7},{n:'вопр.',v:0.3},{n:'европ.',v:0.9}];
+        const prods = inps.map((inp,j) => (inp.v * parseFloat(ws[j])).toFixed(2));
+        const status = nd.isActive ? '✓ активен' : '✗ спит';
+        const statusColor = nd.isActive ? 'color:#34d399' : 'color:#f87171';
+
+        tip.innerHTML = `<div style="font-weight:600;color:#22d3ee;margin-bottom:4px">Нейрон #${nd.id} <span style="${statusColor}">${status}</span></div>` +
+          `<div style="font-family:monospace;font-size:.85em;line-height:1.7">` +
+          inps.map((inp,j) => `${inp.v} × <span style="color:#22d3ee">${ws[j]}</span> = <span style="color:${parseFloat(prods[j])>=0?'#34d399':'#f87171'}">${prods[j]}</span>`).join('<br>') +
+          `<br><span style="opacity:.4">...ещё 4092...</span></div>` +
+          `<div style="margin-top:4px">Σ = <strong>${nd.sum.toFixed(2)}</strong> → активация → <strong style="${statusColor}">${nd.activated.toFixed(2)}</strong></div>`;
+
+        tip.style.display = 'block';
+        const cr = ffnNeuronCanvas.getBoundingClientRect();
+        const dotScreenX = cr.left + nd.x / NW * cr.width;
+        const dotScreenY = cr.top + nd.y / NH * cr.height;
+        tip.style.left = Math.min(dotScreenX, window.innerWidth - 330) + 'px';
+        tip.style.top = (dotScreenY - tip.offsetHeight - 10 > 60 ? dotScreenY - tip.offsetHeight - 10 : dotScreenY + 15) + 'px';
+        setTimeout(() => { tip.style.display = 'none'; drawFFNNeurons(-1); }, 6000);
+      }
+    }
+  });
+}
+
+// ── Slide 7: Attention interactive ──
+const attentionData = {
+  names: ['Как','ая','стол','ица','Франц','ии','?'],
+  colors: ['var(--pink)','var(--orange)','var(--cyan)','var(--green)','var(--accent)','var(--yellow)','var(--red)'],
+  // Attention weights: attWeights[i] = how token i rates all others
+  weights: [
+    [0, .05, .08, .06, .15, .04, .62],  // Как → ? (вопросительное ищет знак вопроса)
+    [.35, 0, .10, .08, .12, .05, .30],  // ая → Как (окончание ищет начало слова)
+    [.08, .03, 0, .52, .28, .04, .05],  // стол → ица (ищет своё продолжение)
+    [.06, .02, .48, 0, .35, .04, .05],  // ица → стол + Франц
+    [.10, .02, .18, .22, 0, .40, .08],  // Франц → ии + ица (ищет связь со столицей)
+    [.04, .03, .05, .08, .65, 0, .15],  // ии → Франц (окончание ищет корень)
+    [.45, .08, .12, .10, .15, .05, 0],  // ? → Как (знак вопроса ищет вопросительное слово)
+  ]
+};
+
+function showAttention(idx) {
+  // Update active token
+  document.querySelectorAll('.att-token').forEach((t,i) => {
+    t.classList.toggle('active', i === idx);
+  });
+
+  const who = attentionData.names[idx];
+  document.getElementById('attWho').textContent = who;
+  document.getElementById('attWho').style.color = attentionData.colors[idx];
+
+  // Build bars sorted by weight
+  const weights = attentionData.weights[idx];
+  const items = weights.map((w,i) => ({name: attentionData.names[i], weight: w, color: attentionData.colors[i], idx: i}))
+    .filter(item => item.idx !== idx)
+    .sort((a,b) => b.weight - a.weight);
+
+  const barsEl = document.getElementById('attBars');
+  barsEl.innerHTML = '';
+
+  items.forEach((item, rank) => {
+    const pct = Math.round(item.weight * 100);
+    const row = document.createElement('div');
+    row.className = 'att-bar-row';
+    row.innerHTML = `
+      <div class="att-bar-name" style="color:${item.color}">${item.name}</div>
+      <div class="att-bar-track">
+        <div class="att-bar-fill" style="width:${pct}%;background:${item.color};opacity:${0.4 + item.weight}"></div>
+      </div>
+      <div class="att-bar-pct" style="color:${item.color};opacity:${0.5 + item.weight * 0.5}">${pct}%</div>
+    `;
+    barsEl.appendChild(row);
+    // Animate — slower, staggered
+    const fill = row.querySelector('.att-bar-fill');
+    fill.style.width = '0%';
+    setTimeout(() => { fill.style.width = pct + '%'; }, 200 + rank * 250);
+  });
+}
+
+// Click handlers
+document.querySelectorAll('.att-token').forEach((tok, i) => {
+  tok.addEventListener('click', () => showAttention(i));
+});
+
+// Attention auto-plays when slide 7 (step 6) becomes active
+let attentionPlayed = false;
+
+// ── Slide 10: ×60 layers — sequential reveal + mini visuals ──
+let layersRevealed = false;
+let midBarInterval = null;
+let layerSlideActive = false;
+
+function drawMiniBars(containerId, weights) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '';
+  weights.forEach(w => {
+    const bar = document.createElement('div');
+    bar.style.cssText = `height:3px;margin:2px 0;border-radius:1px;background:var(--orange);opacity:${0.2+w*0.6};width:0%;transition:width 1.2s ease-out`;
+    el.appendChild(bar);
+    setTimeout(() => { bar.style.width = w * 100 + '%'; }, 150);
+  });
+}
+
+function drawMiniNeurons(containerId, activeRatio) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = '';
+  for (let i = 0; i < 24; i++) {
+    const dot = document.createElement('div');
+    const active = Math.random() < activeRatio;
+    dot.style.cssText = `width:4px;height:4px;border-radius:50%;display:inline-block;margin:1px;background:${active ? '#22d3ee' : 'rgba(34,211,238,.1)'};opacity:${active ? 0.5+Math.random()*0.4 : 1}`;
+    el.appendChild(dot);
+  }
+}
+
+function animateMiddleBars() {
+  // Create 57 bars with 0 height, then grow them one by one
+  const container = document.getElementById('midBars');
+  const counter = document.getElementById('midCounter');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // Pre-create all 57 bars (invisible)
+  const bars = [];
+  for (let i = 0; i < 57; i++) {
+    const bar = document.createElement('div');
+    const h = 10 + Math.random() * 16;
+    const op = 0.15 + (i / 57) * 0.25;
+    bar.style.cssText = `flex:1;min-width:2px;border-radius:1px;height:0px;transition:height .3s ease-out;background:linear-gradient(to bottom, rgba(251,146,60,${op}), rgba(34,211,238,${op}))`;
+    bar.dataset.targetH = h;
+    container.appendChild(bar);
+    bars.push(bar);
+  }
+
+  // Animate: reveal bars left to right, ~60ms each = ~3.4 seconds total
+  let idx = 0;
+  midBarInterval = setInterval(() => {
+    if (idx >= 57) {
+      clearInterval(midBarInterval);
+      midBarInterval = null;
+      return;
+    }
+    bars[idx].style.height = bars[idx].dataset.targetH + 'px';
+    if (counter) counter.textContent = String(idx + 3);
+    idx++;
+  }, 60);
+}
+
+// Animate numbers from data-from to data-to
+function animateOutputVec(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const vals = el.querySelectorAll('.anim-val');
+  const diffs = el.querySelectorAll('.anim-diff');
+  const duration = 800;
+  const start = performance.now();
+
+  function tick(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const ease = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2, 2)/2; // easeInOut
+    vals.forEach(v => {
+      const from = parseFloat(v.dataset.from);
+      const to = parseFloat(v.dataset.to);
+      v.textContent = (from + (to - from) * ease).toFixed(2);
+    });
+    if (t < 1) requestAnimationFrame(tick);
+    else {
+      // Show diff arrows after numbers settle
+      diffs.forEach(d => { d.style.opacity = '1'; d.style.transition = 'opacity .3s'; });
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+// Animate one layer: row appears → att pulses → ffn pulses → pause → output fades in with number animation
+function animateLayer(prefix, attWeights, ffnRatio, baseDelay) {
+  const row = document.getElementById('layerRow' + prefix);
+  const attGate = document.getElementById('att' + prefix + 'Gate');
+  const ffnGate = document.getElementById('ffn' + prefix + 'Gate');
+  const arr1 = document.getElementById('arr' + prefix + 'a');
+  const arr2 = document.getElementById('arr' + prefix + 'b');
+  const out = document.getElementById('out' + prefix);
+
+  // 0ms: row appears (input vec visible)
+  setTimeout(() => { if (row) row.style.opacity = '1'; }, baseDelay);
+
+  // +600ms: Attention lights up + pulse glow
+  setTimeout(() => {
+    if (attGate) { attGate.style.opacity = '1'; attGate.style.boxShadow = '0 0 16px rgba(251,146,60,.4)'; setTimeout(() => { if(attGate) attGate.style.boxShadow = ''; }, 800); }
+    drawMiniBars('att' + prefix + 'Mini', attWeights);
+  }, baseDelay + 600);
+
+  // +1200ms: arrow, FFN lights up + pulse glow
+  setTimeout(() => {
+    if (arr1) arr1.style.opacity = '1';
+    if (ffnGate) { ffnGate.style.opacity = '1'; ffnGate.style.boxShadow = '0 0 16px rgba(34,211,238,.4)'; setTimeout(() => { if(ffnGate) ffnGate.style.boxShadow = ''; }, 800); }
+    drawMiniNeurons('ffn' + prefix + 'Mini', ffnRatio);
+  }, baseDelay + 1200);
+
+  // +1900ms: arrow + output appears with number animation
+  setTimeout(() => {
+    if (arr2) arr2.style.opacity = '1';
+    if (out) out.style.opacity = '1';
+    animateOutputVec('out' + prefix);
+  }, baseDelay + 1900);
+}
+
+function revealLayers() {
+  if (layersRevealed) return;
+  layersRevealed = true;
+
+  const mid = document.getElementById('layerMiddle');
+  const insight = document.getElementById('layerInsight');
+
+  // Layer 1: starts at 0.5s, full animation ~2.4s
+  animateLayer('1', [0.65, 0.15, 0.10, 0.06, 0.04], 0.25, 500);
+
+  // Layer 2: starts at 3.5s
+  animateLayer('2', [0.40, 0.30, 0.18, 0.08, 0.04], 0.3, 3500);
+
+  // Middle block: at 6.5s, then bars crawl ~3.4s
+  setTimeout(() => {
+    if (mid) mid.style.opacity = '1';
+    setTimeout(animateMiddleBars, 300);
+  }, 6500);
+
+  // Layer 60: at 11s (6.5 + 0.3 + 3.4 + ~0.8 pause)
+  animateLayer('60', [0.10, 0.08, 0.05, 0.72, 0.05], 0.18, 11000);
+
+  // Insight: at 14s
+  setTimeout(() => {
+    if (insight) insight.style.opacity = '1';
+  }, 14000);
+}
+
+function resetLayers() {
+  layersRevealed = false;
+  if (midBarInterval) { clearInterval(midBarInterval); midBarInterval = null; }
+  // Reset rows
+  ['layerRow1','layerRow2','layerMiddle','layerRow60','layerInsight'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.opacity = '0';
+  });
+  // Reset gates, arrows, outputs
+  ['1','2','60'].forEach(p => {
+    ['att'+p+'Gate','ffn'+p+'Gate'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.style.opacity = '.3'; el.style.boxShadow = ''; }
+    });
+    ['arr'+p+'a','arr'+p+'b','out'+p].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.opacity = '0';
+    });
+    // Reset anim-val to data-from, hide diffs
+    const out = document.getElementById('out'+p);
+    if (out) {
+      out.querySelectorAll('.anim-val').forEach(v => { v.textContent = v.dataset.from; });
+      out.querySelectorAll('.anim-diff').forEach(d => { d.style.opacity = '0'; });
+    }
+  });
+  const container = document.getElementById('midBars');
+  if (container) container.innerHTML = '';
+  const counter = document.getElementById('midCounter');
+  if (counter) counter.textContent = '3';
+}
+
+// ── Slide 11: GPU vs CPU — chip visualization ──
+let gpuSlideActive = false;
+let gpuAnimInterval = null;
+const GPU_TOTAL = 400;
+const GPU_WAVES = 12; // number of wave steps
+
+// Build GPU grid with slight random offsets
+const gpuGrid = document.getElementById('gpuGrid');
+if (gpuGrid) {
+  for (let i = 0; i < GPU_TOTAL; i++) {
+    const d = document.createElement('div');
+    d.className = 'gpu-dot';
+    // Random margin for organic look
+    const mx = Math.random() * 2;
+    const my = Math.random() * 2;
+    d.style.margin = `${my}px ${mx}px`;
+    // Assign to a wave group (roughly left-to-right with some randomness)
+    d.dataset.wave = Math.floor((i / GPU_TOTAL) * GPU_WAVES + (Math.random() - 0.5) * 2);
+    gpuGrid.appendChild(d);
+  }
+}
+
+function startGpuAnim() {
+  const problemEl = document.getElementById('gpuProblem');
+  const chipsEl = document.getElementById('gpuChips');
+  const insightEl = document.getElementById('gpuInsight');
+  const cpuCounterEl = document.getElementById('cpuCounter');
+  const gpuCounterEl = document.getElementById('gpuCounter');
+  const cpuCores = [0,1,2,3].map(i => document.getElementById('cpuC' + i));
+  const gpuDots = gpuGrid ? Array.from(gpuGrid.children) : [];
+
+  // Reset
+  cpuCores.forEach(c => { if (c) c.classList.remove('lit'); });
+  gpuDots.forEach(d => d.classList.remove('lit'));
+  if (cpuCounterEl) cpuCounterEl.textContent = '—';
+  if (gpuCounterEl) gpuCounterEl.textContent = '—';
+  if (problemEl) problemEl.style.opacity = '0';
+  if (chipsEl) chipsEl.style.opacity = '0';
+  if (insightEl) insightEl.style.opacity = '0';
+
+  // Phase 1: show problem (0.5s)
+  setTimeout(() => { if (problemEl) problemEl.style.opacity = '1'; }, 500);
+
+  // Phase 2: show chips (2s)
+  setTimeout(() => { if (chipsEl) chipsEl.style.opacity = '1'; }, 2000);
+
+  // Phase 3: start animation (3s)
+  setTimeout(() => {
+    let cpuDone = 0;
+    let gpuWave = 0; // current wave row
+    let cpuCoreIdx = 0;
+    const cpuTotal = 16384;
+    const gpuTotal = 16384;
+    let gpuFinished = false;
+
+    if (cpuCounterEl) cpuCounterEl.textContent = '0';
+    if (gpuCounterEl) gpuCounterEl.textContent = '0';
+
+    gpuAnimInterval = setInterval(() => {
+      // === CPU: one core lights up, processes 4 neurons ===
+      cpuCores.forEach((c, i) => { if (c) c.classList.toggle('lit', i === cpuCoreIdx % 4); });
+      cpuCoreIdx++;
+      cpuDone = Math.min(cpuDone + 4, cpuTotal);
+      if (cpuCounterEl) cpuCounterEl.textContent = cpuDone.toLocaleString();
+
+      // === GPU: light up one wave group per tick ===
+      if (gpuWave < GPU_WAVES) {
+        gpuDots.forEach(d => {
+          const w = parseInt(d.dataset.wave) || 0;
+          if (w <= gpuWave) d.classList.add('lit');
+        });
+        gpuWave++;
+        const gpuDoneNow = Math.min(Math.round(gpuWave / GPU_WAVES * gpuTotal), gpuTotal);
+        if (gpuCounterEl) gpuCounterEl.textContent = gpuDoneNow.toLocaleString();
+      }
+
+      // GPU all lit — hold glow, show done
+      if (gpuWave >= GPU_WAVES && !gpuFinished) {
+        gpuFinished = true;
+        if (gpuCounterEl) gpuCounterEl.textContent = '16 384 ✓';
+        // Dim GPU dots to steady glow after a moment
+        setTimeout(() => {
+          gpuDots.forEach(d => { d.style.opacity = '.6'; });
+        }, 800);
+      }
+
+      // CPU still going... stop after enough ticks to show the contrast
+      // After 80 ticks (=320 neurons on CPU, GPU long done), show insight and stop
+      if (cpuCoreIdx >= 80) {
+        clearInterval(gpuAnimInterval);
+        gpuAnimInterval = null;
+        cpuCores.forEach(c => { if (c) c.classList.remove('lit'); });
+        if (cpuCounterEl) cpuCounterEl.textContent = cpuDone.toLocaleString() + '...';
+        if (insightEl) insightEl.style.opacity = '1';
+      }
+    }, 200);
+  }, 3000);
+}
+
+function resetGpuAnim() {
+  if (gpuAnimInterval) { clearInterval(gpuAnimInterval); gpuAnimInterval = null; }
+  const cpuCores = [0,1,2,3].map(i => document.getElementById('cpuC' + i));
+  cpuCores.forEach(c => { if (c) c.classList.remove('lit'); });
+  const gpuDots = gpuGrid ? Array.from(gpuGrid.children) : [];
+  gpuDots.forEach(d => { d.classList.remove('lit'); d.style.opacity = ''; });
+  ['gpuProblem','gpuChips','gpuInsight'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.opacity = '0';
+  });
+  ['cpuCounter','gpuCounter'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = '—';
+  });
+}
+
+// ── Slide 12: Generation — sequential reveal ──
+let genRevealed = false;
+let genSlideActive = false;
+
+function revealGeneration() {
+  if (genRevealed) return;
+  genRevealed = true;
+
+  function show(id, delay) { setTimeout(() => { const el = document.getElementById(id); if (el) el.style.opacity = '1'; }, delay); }
+  function hide(id, delay) { setTimeout(() => { const el = document.getElementById(id); if (el) el.style.display = 'none'; }, delay); }
+  function stopPulse(id, delay) { setTimeout(() => { const el = document.getElementById(id); if (el) el.classList.remove('gen-pulse'); }, delay); }
+
+  // Pass 1: tokens + pulsing "?" appear
+  show('genPass1', 300);
+
+  // Spinner starts (last token still pulsing)
+  show('genSpin1', 1200);
+
+  // Spinner stops → decode row appears
+  hide('genSpin1', 3200);
+  stopPulse('genLastTok1', 3200);
+  show('genDecode1', 3200);
+
+  // Probs + bars animate
+  setTimeout(() => {
+    const p = document.getElementById('genProbs1'); if (p) p.style.opacity = '1';
+    setTimeout(() => {
+      const b1 = document.getElementById('genBar1'); if (b1) b1.style.width = '92%';
+      const b2 = document.getElementById('genBar2'); if (b2) b2.style.width = '3%';
+      const b3 = document.getElementById('genBar3'); if (b3) b3.style.width = '2%';
+    }, 100);
+  }, 4000);
+
+  // Result "Пар"
+  show('genResult1', 5500);
+
+  // Pass 2
+  show('genPass2', 7000);
+  show('genSpin2', 7800);
+
+  // Spinner 2 stops → result
+  hide('genSpin2', 10000);
+  stopPulse('genLastTok2', 10000);
+  show('genResult2', 10000);
+
+  // Final "Париж"
+  show('genFinal', 12000);
+
+  // Insight
+  show('genInsight', 13500);
+}
+
+function resetGeneration() {
+  genRevealed = false;
+  ['genPass1','genPass2','genFinal','genInsight','genDecode1','genProbs1','genResult1','genResult2'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.opacity = '0';
+  });
+  // Restore spinners
+  ['genSpin1','genSpin2'].forEach(id => {
+    const el = document.getElementById(id); if (el) { el.style.display = ''; el.style.opacity = '0'; }
+  });
+  // Restore pulse on last tokens
+  ['genLastTok1','genLastTok2'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.classList.add('gen-pulse');
+  });
+  ['genBar1','genBar2','genBar3'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.width = '0%';
+  });
+}
+
+// Hook into navigation for both slide 9 (layers) and slide 10 (generation)
+const origDoTransition = doTransition;
+doTransition = function(prev, idx, forward) {
+  origDoTransition(prev, idx, forward);
+  // step 9 = ×60 layers
+  if (idx === 9 && !layerSlideActive) {
+    layerSlideActive = true;
+    setTimeout(revealLayers, 400);
+  } else if (idx !== 9 && layerSlideActive) {
+    layerSlideActive = false;
+    resetLayers();
+  }
+  // step 10 = GPU
+  if (idx === 10 && !gpuSlideActive) {
+    gpuSlideActive = true;
+    setTimeout(startGpuAnim, 400);
+  } else if (idx !== 10 && gpuSlideActive) {
+    gpuSlideActive = false;
+    resetGpuAnim();
+  }
+  // step 11 = generation
+  if (idx === 11 && !genSlideActive) {
+    genSlideActive = true;
+    setTimeout(revealGeneration, 400);
+  } else if (idx !== 11 && genSlideActive) {
+    genSlideActive = false;
+    resetGeneration();
+  }
+  // step 12 = replay summary
+  if (idx === 12 && !replayActive) {
+    replayActive = true;
+    setTimeout(startReplay, 400);
+  } else if (idx !== 12 && replayActive) {
+    replayActive = false;
+    resetReplay();
+  }
+};
+
+// ── Slide 13: Replay pipeline ──
+let replayActive = false;
+let replayTimeout = null;
+
+const REPLAY_LABELS = [
+  'Ввод запроса',
+  'API → сервер',
+  'Токенизация',
+  'Эмбеддинги',
+  'Attention + FFN × 60',
+  'Генерация ответа'
+];
+
+function startReplay() {
+  const scenes = [];
+  for (let i = 0; i <= 5; i++) {
+    const el = document.getElementById('rScene' + i);
+    if (el) scenes.push(el);
+  }
+  const labelEl = document.getElementById('replayLabel');
+  const numbersEl = document.getElementById('replayNumbers');
+
+  // Reset all scenes
+  scenes.forEach(s => { s.style.display = 'none'; s.classList.remove('active'); });
+  if (numbersEl) numbersEl.style.opacity = '0';
+
+  //                  input  API     tokens  emb     att+ffn  generation
+  const timings = [0, 4000, 10000, 14000, 19000, 27000];
+  let currentScene = -1;
+
+  function showScene(idx) {
+    if (currentScene >= 0 && scenes[currentScene]) {
+      const prev = scenes[currentScene];
+      prev.classList.remove('active');
+      setTimeout(() => { prev.style.display = 'none'; }, 600);
+    }
+    currentScene = idx;
+    if (scenes[idx]) {
+      scenes[idx].style.display = '';
+      scenes[idx].offsetHeight;
+      scenes[idx].classList.add('active');
+    }
+    if (labelEl) labelEl.textContent = REPLAY_LABELS[idx] || '';
+  }
+
+  // Scene 0: typing
+  setTimeout(() => {
+    showScene(0);
+    const typEl = document.getElementById('replayTyping');
+    if (typEl) {
+      const txt = 'Какая столица Франции?';
+      let ci = 0;
+      const typeInt = setInterval(() => {
+        if (ci <= txt.length) {
+          typEl.innerHTML = txt.slice(0, ci) + '<span class="cursor">&hairsp;</span>';
+          ci++;
+        } else { clearInterval(typeInt); }
+      }, 60);
+    }
+  }, timings[0]);
+
+  // Scene 1: API flight — JSON раскрывается на system + user
+  setTimeout(() => {
+    showScene(1);
+    // After 1.5s reveal system block, after 2.5s reveal user block
+    setTimeout(() => {
+      const sys = document.getElementById('rJsonSys'); if (sys) sys.style.opacity = '1';
+    }, 1500);
+    setTimeout(() => {
+      const usr = document.getElementById('rJsonUser'); if (usr) usr.style.opacity = '1';
+    }, 2500);
+  }, timings[1]);
+
+  // Scene 2: Tokens
+  setTimeout(() => { showScene(2); }, timings[2]);
+
+  // Scene 3: Embeddings — rows appear one by one
+  setTimeout(() => {
+    showScene(3);
+    const rows = document.querySelectorAll('#replayEmbTable .emb-row');
+    rows.forEach((r, i) => {
+      setTimeout(() => { r.style.opacity = '1'; }, i * 400);
+    });
+  }, timings[3]);
+
+  // Scene 4: Vector → Attention pulse → FFN pulse → spinner ×60
+  setTimeout(() => {
+    showScene(4);
+    const attBlock = document.getElementById('rAttBlock');
+    const ffnBlock = document.getElementById('rFfnBlock');
+    const spinEl = document.getElementById('rLayerSpin');
+    const tickEl = document.getElementById('replayLayerTick');
+
+    // 1s: Attention pulses, output values update (after attention)
+    setTimeout(() => {
+      if (attBlock) { attBlock.style.background = 'rgba(251,146,60,.2)'; attBlock.style.boxShadow = '0 0 16px rgba(251,146,60,.3)'; }
+      const o0 = document.getElementById('rVecOut0');
+      const o1 = document.getElementById('rVecOut1');
+      if (o0) o0.innerHTML = 'столица <span style="color:var(--green)">0.82</span>';
+      if (o1) o1.innerHTML = 'вопрос <span style="color:var(--orange)">0.28</span>';
+    }, 1000);
+
+    // 2s: Attention calms, FFN pulses, more values update
+    setTimeout(() => {
+      if (attBlock) { attBlock.style.background = ''; attBlock.style.boxShadow = ''; }
+      if (ffnBlock) { ffnBlock.style.background = 'rgba(34,211,238,.2)'; ffnBlock.style.boxShadow = '0 0 16px rgba(34,211,238,.3)'; }
+      const o0 = document.getElementById('rVecOut0');
+      const o2 = document.getElementById('rVecOut2');
+      if (o0) o0.innerHTML = 'столица <span style="color:var(--green);font-weight:700">0.88</span>';
+      if (o2) o2.innerHTML = 'европа <span style="color:var(--pink)">0.85</span>';
+    }, 2500);
+
+    // 3.5s: FFN calms, spinner appears, layer counter ticks, vectors evolve
+    setTimeout(() => {
+      if (ffnBlock) { ffnBlock.style.background = ''; ffnBlock.style.boxShadow = ''; }
+      if (spinEl) spinEl.style.opacity = '1';
+
+      const o0 = document.getElementById('rVecOut0');
+      const o1 = document.getElementById('rVecOut1');
+      const o2 = document.getElementById('rVecOut2');
+      const i0 = document.getElementById('rVecIn0');
+      const i1 = document.getElementById('rVecIn1');
+      const i2 = document.getElementById('rVecIn2');
+
+      // Values evolve as layers progress
+      const evolution = [
+        // [layer, stolica, vopros, europa] — input and output shift
+        [5,  0.88, 0.25, 0.82],
+        [12, 0.91, 0.18, 0.78],
+        [25, 0.94, 0.10, 0.74],
+        [40, 0.96, 0.06, 0.71],
+        [55, 0.97, 0.04, 0.70],
+        [60, 0.97, 0.03, 0.70],
+      ];
+      let evoIdx = 0;
+
+      if (tickEl) {
+        let layer = 2;
+        const layerInt = setInterval(() => {
+          if (layer > 60) {
+            clearInterval(layerInt);
+            if (spinEl) spinEl.querySelector('.gen-spinner').style.display = 'none';
+            return;
+          }
+          tickEl.textContent = '×' + layer;
+
+          // Update vectors at evolution checkpoints
+          if (evoIdx < evolution.length && layer >= evolution[evoIdx][0]) {
+            const e = evolution[evoIdx];
+            const sC = e[1] >= 0.95 ? 'var(--green);font-weight:700' : 'var(--green)';
+            const vC = e[2] <= 0.10 ? 'var(--dim);opacity:.4' : 'var(--orange)';
+            if (o0) o0.innerHTML = `столица <span style="color:${sC}">${e[1].toFixed(2)}</span>`;
+            if (o1) o1.innerHTML = `вопрос <span style="color:${vC}">${e[2].toFixed(2)}</span>`;
+            if (o2) o2.innerHTML = `европа <span style="color:var(--pink)">${e[3].toFixed(2)}</span>`;
+            // Input also shifts (it feeds back each layer)
+            if (i0) i0.innerHTML = `столица <span style="color:var(--green)">${e[1].toFixed(2)}</span>`;
+            if (i1) i1.innerHTML = `вопрос <span style="color:var(--orange)">${e[2].toFixed(2)}</span>`;
+            if (i2) i2.innerHTML = `европа <span style="color:var(--pink)">${e[3].toFixed(2)}</span>`;
+            evoIdx++;
+          }
+
+          layer++;
+        }, 80);
+      }
+    }, 3500);
+  }, timings[4]);
+
+  // Scene 5: Generation replay — tokens + spinner + Пар + spinner + иж = Париж
+  setTimeout(() => {
+    showScene(5);
+    const spin1 = document.getElementById('rGenSpin1');
+    const tok1 = document.getElementById('rGenTok1');
+    const spin2 = document.getElementById('rGenSpin2');
+    const tok2 = document.getElementById('rGenTok2');
+    const final = document.getElementById('rGenFinal');
+    const lastTok = document.getElementById('rGenLast');
+
+    // 0.5s: spinner 1 appears (? still pulsing)
+    setTimeout(() => { if (spin1) spin1.style.opacity = '1'; }, 500);
+    // 2.5s: spinner 1 hides, "Пар" appears, ? stops pulsing
+    setTimeout(() => {
+      if (spin1) spin1.style.display = 'none';
+      if (tok1) tok1.style.opacity = '1';
+      if (lastTok) lastTok.classList.remove('gen-pulse');
+    }, 2500);
+    // 3.5s: spinner 2 appears
+    setTimeout(() => { if (spin2) spin2.style.opacity = '1'; }, 3500);
+    // 5.5s: spinner 2 hides, "иж" appears
+    setTimeout(() => {
+      if (spin2) spin2.style.display = 'none';
+      if (tok2) tok2.style.opacity = '1';
+    }, 5500);
+    // 7s: Париж
+    setTimeout(() => { if (final) final.style.opacity = '1'; }, 7000);
+    // 8.5s: numbers
+    setTimeout(() => { if (numbersEl) numbersEl.style.opacity = '1'; }, 8500);
+  }, timings[5]);
+}
+
+function resetReplay() {
+  for (let i = 0; i <= 5; i++) {
+    const el = document.getElementById('rScene' + i);
+    if (el) { el.style.display = 'none'; el.classList.remove('active'); }
+  }
+  const labelEl = document.getElementById('replayLabel');
+  if (labelEl) labelEl.textContent = '';
+  const typEl = document.getElementById('replayTyping');
+  if (typEl) typEl.innerHTML = '';
+  const bar = document.getElementById('replayBar');
+  if (bar) bar.style.width = '0%';
+  const tickEl = document.getElementById('replayLayerTick');
+  if (tickEl) tickEl.textContent = '×1';
+  const nums = document.getElementById('replayNumbers');
+  if (nums) nums.style.opacity = '0';
+  // Reset JSON blocks
+  ['rJsonSys','rJsonUser'].forEach(id => { const el = document.getElementById(id); if (el) el.style.opacity = '0'; });
+  // Reset embedding rows
+  document.querySelectorAll('#replayEmbTable .emb-row').forEach(r => { r.style.opacity = '0'; });
+  // Reset attention/FFN scene
+  ['rAttBlock','rFfnBlock'].forEach(id => {
+    const el = document.getElementById(id); if (el) { el.style.background = ''; el.style.boxShadow = ''; }
+  });
+  const spinEl = document.getElementById('rLayerSpin');
+  if (spinEl) { spinEl.style.opacity = '0'; const sp = spinEl.querySelector('.gen-spinner'); if (sp) sp.style.display = ''; }
+  ['rVecOut0','rVecOut1','rVecOut2'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.innerHTML = el.id.replace('rVecOut','') === '0' ? 'столица <span style="color:var(--dim)">—</span>' : el.id.replace('rVecOut','') === '1' ? 'вопрос <span style="color:var(--dim)">—</span>' : 'европа <span style="color:var(--dim)">—</span>';
+  });
+  // Reset generation replay
+  ['rGenSpin1','rGenSpin2'].forEach(id => { const el = document.getElementById(id); if (el) { el.style.display = ''; el.style.opacity = '0'; } });
+  ['rGenTok1','rGenTok2','rGenFinal'].forEach(id => { const el = document.getElementById(id); if (el) el.style.opacity = '0'; });
+  const rLast = document.getElementById('rGenLast'); if (rLast) rLast.classList.add('gen-pulse');
+}
+
+// ── System prompt: main toggle ──
+function toggleSysPromptBlock() {
+  const detail = document.getElementById('spDetail');
+  const chevron = document.getElementById('spChevron');
+  const dots = document.getElementById('sysPromptDots');
+  const isOpen = detail.style.display !== 'none';
+  detail.style.display = isOpen ? 'none' : 'block';
+  chevron.classList.toggle('open', !isOpen);
+  if (dots) dots.style.display = isOpen ? '' : 'none';
+}
+
+// Generate visual dots for system prompt size
+const spDots = document.getElementById('sysPromptDots');
+if (spDots) {
+  for (let i = 0; i < 200; i++) {
+    const d = document.createElement('div');
+    d.style.cssText = 'width:3px;height:3px;border-radius:50%;background:var(--pink);opacity:.2;flex-shrink:0';
+    spDots.appendChild(d);
+  }
+}
+
+// ── Slide 9: Training distillation canvas ──
+// Uses ffnNeurons from slide 8 as target pattern
+const trainCanvas = document.getElementById('trainCanvas');
+if (trainCanvas) {
+  const tctx = trainCanvas.getContext('2d');
+  let trainAnimating = false;
+  let trainFrame = 0;
+  const TRAIN_DURATION = 360; // ~6 seconds at 60fps
+  const FADE_START = 300; // particles start fading out
+  const FADE_END = 340; // particles fully gone
+
+  // Match FFN grid: 14 cols × 20 rows
+  const TCOLS = 14, TROWS = 20;
+  // Current brightness per neuron (animated 0→target)
+  const trainBright = new Float32Array(TCOLS * TROWS);
+  // Target brightness — copied from ffnNeurons (active=bright, inactive=dim)
+  const trainTarget = new Float32Array(TCOLS * TROWS);
+
+  let particles = [];
+  const sourceColors = ['#6366f1','#22d3ee','#fb923c','#f472b6','#34d399'];
+  const textSnippets = [
+    'столица Франции','def main():','пациент жалуется','E=mc²','capital of',
+    'SELECT * FROM','the quick brown','нейронная сеть','machine learning',
+    'Париж','Berlin','Tokyo','function()','import numpy','GDP growth',
+    'квантовая физика','DNA sequence','React.useState','border-radius',
+    'столица','France','population','algorithm','transformer','attention',
+    'gradient descent','backpropagation','loss function','optimizer',
+  ];
+
+  function initTrainTargets() {
+    // Copy active/inactive pattern from ffnNeurons (screen 8)
+    if (typeof ffnNeurons !== 'undefined' && ffnNeurons.length === TCOLS * TROWS) {
+      for (let i = 0; i < ffnNeurons.length; i++) {
+        trainTarget[i] = ffnNeurons[i].isActive ? (0.4 + Math.random() * 0.5) : 0;
+      }
+    } else {
+      // Fallback: generate matching pattern with same seed logic
+      for (let i = 0; i < TCOLS * TROWS; i++) {
+        trainTarget[i] = Math.random() < 0.22 ? (0.4 + Math.random() * 0.5) : 0;
+      }
+    }
+  }
+
+  function resizeTrainCanvas() {
+    const rect = trainCanvas.parentElement.getBoundingClientRect();
+    trainCanvas.width = rect.width * devicePixelRatio;
+    trainCanvas.height = rect.height * devicePixelRatio;
+    tctx.scale(devicePixelRatio, devicePixelRatio);
+  }
+
+  function spawnParticle(H) {
+    const srcIdx = Math.floor(Math.random() * 5);
+    const srcY = 30 + srcIdx * (H - 60) / 5;
+    particles.push({
+      x: 0,
+      y: srcY + (Math.random() - 0.5) * 20,
+      vx: 2 + Math.random() * 3,
+      vy: (Math.random() - 0.5) * 1.5,
+      color: sourceColors[srcIdx],
+      alpha: 0.6 + Math.random() * 0.4,
+      text: textSnippets[Math.floor(Math.random() * textSnippets.length)],
+    });
+  }
+
+  function drawTraining() {
+    const W = trainCanvas.width / devicePixelRatio;
+    const H = trainCanvas.height / devicePixelRatio;
+    tctx.clearRect(0, 0, W, H);
+
+    const progress = Math.min(trainFrame / TRAIN_DURATION, 1);
+    const neuronZoneX = W * 0.55;
+    const neuronZoneW = W * 0.35;
+    const neuronZoneH = H * 0.9;
+    const neuronTopY = 15;
+    const cellW = neuronZoneW / (TCOLS - 1);
+    const cellH = neuronZoneH / (TROWS - 1);
+
+    // Global particle fade: 1.0 before FADE_START, 0.0 at FADE_END
+    const particleFade = trainFrame < FADE_START ? 1 :
+      trainFrame > FADE_END ? 0 :
+      1 - (trainFrame - FADE_START) / (FADE_END - FADE_START);
+
+    // Spawn particles (stop before fade-out)
+    if (trainFrame < FADE_START - 30) {
+      const spawnRate = progress < 0.1 ? 1 : (progress < 0.6 ? 3 : 2);
+      for (let i = 0; i < spawnRate; i++) spawnParticle(H);
+    }
+
+    // Update particles
+    const alive = [];
+    for (const p of particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy *= 0.98;
+      p.vy += (H / 2 - p.y) * 0.002;
+
+      // Absorb into nearby neuron
+      if (p.x > neuronZoneX - 10) {
+        const nr = Math.floor(((p.y - neuronTopY) / neuronZoneH) * TROWS);
+        const nc = Math.floor(((p.x - neuronZoneX) / neuronZoneW) * TCOLS);
+        if (nr >= 0 && nr < TROWS && nc >= 0 && nc < TCOLS) {
+          const idx = nr * TCOLS + nc;
+          if (trainTarget[idx] > 0) {
+            trainBright[idx] = Math.min(trainTarget[idx], trainBright[idx] + 0.08);
+          }
+        }
+        p.alpha -= 0.1;
+      }
+
+      // Apply global fade
+      const effectiveAlpha = p.alpha * particleFade;
+      if (effectiveAlpha > 0.02 && p.x < W) {
+        alive.push(p);
+      }
+    }
+    particles = alive;
+
+    // Draw flow lines (faint)
+    if (particleFade > 0) {
+      tctx.globalAlpha = 0.03 * particleFade;
+      tctx.strokeStyle = '#fff';
+      tctx.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        const srcY = 30 + i * (H - 60) / 5;
+        tctx.beginPath();
+        tctx.moveTo(0, srcY);
+        tctx.quadraticCurveTo(neuronZoneX * 0.5, srcY + (H/2 - srcY) * 0.3, neuronZoneX, H/2);
+        tctx.stroke();
+      }
+      tctx.globalAlpha = 1;
+    }
+
+    // Draw particles
+    if (particleFade > 0) {
+      for (const p of particles) {
+        const a = p.alpha * particleFade;
+        tctx.globalAlpha = a * 0.7;
+        tctx.fillStyle = p.color;
+        tctx.beginPath();
+        tctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+        tctx.fill();
+        if (a > 0.3 && p.x < neuronZoneX - 20) {
+          tctx.font = '9px "JetBrains Mono", monospace';
+          tctx.globalAlpha = a * 0.3;
+          tctx.fillText(p.text, p.x + 5, p.y + 3);
+        }
+      }
+      tctx.globalAlpha = 1;
+    }
+
+    // Converge neuron brightness toward target over time
+    for (let i = 0; i < TCOLS * TROWS; i++) {
+      const target = trainTarget[i];
+      const cur = trainBright[i];
+      // Ease toward target — faster as progress increases
+      const speed = 0.005 + progress * 0.02;
+      if (cur < target) {
+        trainBright[i] = Math.min(target, cur + speed);
+      }
+      // After fade, snap to final
+      if (trainFrame > FADE_END) {
+        trainBright[i] = target;
+      }
+    }
+
+    // Draw neuron grid — same style as FFN canvas on screen 8
+    for (let r = 0; r < TROWS; r++) {
+      for (let c = 0; c < TCOLS; c++) {
+        const idx = r * TCOLS + c;
+        const nx = neuronZoneX + c * cellW;
+        const ny = neuronTopY + r * cellH;
+        const b = trainBright[idx];
+        const isActive = trainTarget[idx] > 0;
+
+        const radius = isActive ? (1.5 + b * 2.5) : 1.5;
+        tctx.beginPath();
+        tctx.arc(nx, ny, radius, 0, Math.PI * 2);
+
+        if (b > 0.05) {
+          tctx.fillStyle = '#22d3ee';
+          tctx.globalAlpha = 0.3 + b * 0.6;
+          tctx.shadowColor = '#22d3ee';
+          tctx.shadowBlur = b * 8;
+        } else {
+          tctx.fillStyle = 'rgba(34,211,238,.08)';
+          tctx.globalAlpha = 1;
+          tctx.shadowBlur = 0;
+        }
+        tctx.fill();
+        tctx.globalAlpha = 1;
+        tctx.shadowBlur = 0;
+      }
+    }
+
+    // Day counter
+    const dayEl = document.getElementById('trainDay');
+    if (dayEl) {
+      const day = Math.floor(progress * 90);
+      if (progress < 0.95) {
+        dayEl.textContent = `День ${day} из 90`;
+      } else {
+        dayEl.textContent = 'Обучение завершено';
+        dayEl.style.color = 'var(--green)';
+      }
+    }
+
+    // Show result + stats
+    if (progress > 0.8) {
+      const resultEl = document.getElementById('trainResult');
+      if (resultEl) resultEl.style.opacity = '1';
+      const statsEl = document.getElementById('trainStats');
+      if (statsEl) statsEl.style.opacity = '1';
+    }
+
+    trainFrame++;
+    if (trainAnimating && trainFrame <= TRAIN_DURATION + 60) {
+      requestAnimationFrame(drawTraining);
+    }
+  }
+
+  function startTraining() {
+    trainFrame = 0;
+    particles = [];
+    trainBright.fill(0);
+    initTrainTargets();
+    const resultEl = document.getElementById('trainResult');
+    if (resultEl) resultEl.style.opacity = '0';
+    const statsEl = document.getElementById('trainStats');
+    if (statsEl) statsEl.style.opacity = '0';
+    const dayEl = document.getElementById('trainDay');
+    if (dayEl) { dayEl.style.color = 'var(--muted)'; dayEl.textContent = ''; }
+    resizeTrainCanvas();
+    trainAnimating = true;
+    drawTraining();
+  }
+
+  const trainObserver = new MutationObserver(() => {
+    const slide = trainCanvas.closest('.slide');
+    if (slide && slide.classList.contains('active')) {
+      if (!trainAnimating) setTimeout(startTraining, 300);
+    } else {
+      trainAnimating = false;
+    }
+  });
+  trainObserver.observe(document.getElementById('slidesContainer'), {subtree:true, attributes:true, attributeFilter:['class']});
+}
+
+// ── System prompt sub-blocks toggle ──
+document.querySelectorAll('.sp-block').forEach(block => {
+  block.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const detail = block.querySelector('.sp-block-detail');
+    const arrow = block.querySelector('.sp-block-arrow');
+    const isOpen = block.classList.contains('open');
+    // Close all
+    document.querySelectorAll('.sp-block').forEach(b => {
+      b.classList.remove('open');
+      b.querySelector('.sp-block-detail').style.display = 'none';
+      const a = b.querySelector('.sp-block-arrow');
+      if (a) a.classList.remove('open');
+    });
+    // Toggle clicked
+    if (!isOpen) {
+      block.classList.add('open');
+      detail.style.display = 'block';
+      if (arrow) arrow.classList.add('open');
+    }
+  });
+});
+</script>
+
+<!-- Shared tooltip (must be outside slides for z-index/overflow) -->
+<div id="infoTooltip" style="display:none;position:fixed;z-index:300;background:var(--bg3);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:12px 16px;max-width:320px;font-size:.82em;color:var(--dim);line-height:1.5;box-shadow:0 8px 32px rgba(0,0,0,.6);pointer-events:none"></div>
+</body>
+</html>
