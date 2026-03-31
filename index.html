@@ -1004,6 +1004,7 @@ Do not generate harmful content...
       <div class="info-click pill-q" data-tooltip="Каждый токен генерирует Query ('что я ищу?') и Key ('что я могу предложить'). Query × Key = оценка совпадения. Чем больше совпадение — тем сильнее связь. Это всё — умножения матриц, чистая математика.">Как считается рейтинг?</div>
       <div class="info-click pill-q" data-tooltip="Каждый токен также генерирует Value ('моё содержимое'). Токен впитывает Value остальных пропорционально весам. 65% содержимого 'Франц' + 12% содержимого 'Какая' + ... Как взвешенное среднее.">Что впитывается?</div>
       <div class="info-click pill-q" data-tooltip="Нет! Attention + FFN = один слой. В GPT-5.4 таких слоёв ~60. Каждый раз вектора обновляются, связи уточняются. Слой 1: 'столица связана с Франция'. Слой 10: 'ответ — Париж'. Слои 11-60: уточнение формулировки.">Это происходит один раз?</div>
+      <div class="info-click pill-q" data-tooltip="Контекстное окно — максимум токенов за один прогон. У нас 7, но в реальном запросе — тысячи (system prompt + история чата + ваш вопрос). Каждый токен смотрит на ВСЕ предыдущие: 7 токенов = 49 связей, 100 000 токенов = 10 миллиардов связей. Вот почему контекст стоит денег, и у моделей есть лимит (GPT-4: 128K, Claude: до 1M).">Что такое контекстное окно?</div>
     </div>
 
   </div>
@@ -2951,7 +2952,7 @@ function startGpuAnim() {
 
       // CPU still going... stop after enough ticks to show the contrast
       // After 80 ticks (=320 neurons on CPU, GPU long done), show insight and stop
-      if (cpuCoreIdx >= 80) {
+      if (cpuCoreIdx >= 30) {
         clearInterval(gpuAnimInterval);
         gpuAnimInterval = null;
         cpuCores.forEach(c => { if (c) c.classList.remove('lit'); });
